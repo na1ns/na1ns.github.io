@@ -1410,6 +1410,27 @@ body.light .poll-ev-banner{background:rgba(26,63,196,.04);border-color:rgba(26,6
 .ev-poll-badge.absent{background:rgba(255,107,107,.1);color:var(--red)}
 
 
+/* ── PIN step ── */
+.poll-pin-wrap{display:flex;flex-direction:column;gap:10px;margin-bottom:8px}
+.poll-pin-inp{width:100%;height:52px;text-align:center;letter-spacing:.3em;font-size:22px;font-weight:800;font-family:var(--font-mono,monospace);background:rgba(255,255,255,.04);border:2px solid var(--border2);border-radius:var(--radius-lg);color:var(--text);outline:none;transition:all .2s}
+.poll-pin-inp:focus{border-color:var(--blue2);background:rgba(124,159,255,.05)}
+.poll-pin-inp.error{border-color:var(--red);background:rgba(255,107,107,.05);animation:shake .3s ease}
+.poll-pin-inp.ok{border-color:var(--green);background:rgba(72,199,142,.05)}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+.poll-pin-error{font-size:12px;color:var(--red);font-weight:600;text-align:center;min-height:16px}
+.poll-pin-submit{width:100%;height:44px;background:var(--blue2,var(--blue));border:none;border-radius:var(--radius-lg);color:white;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;transition:all .2s}
+.poll-pin-submit:hover{opacity:.85}
+/* PIN admin panel */
+.pin-admin-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.pin-admin-table th{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);padding:6px 10px;border-bottom:1px solid var(--border);text-align:left}
+.pin-admin-table td{padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+.pin-admin-table tr:last-child td{border-bottom:none}
+.pin-code{font-family:var(--font-mono,monospace);font-size:13px;font-weight:700;letter-spacing:.15em;color:var(--gold)}
+.pin-gen-btn{height:24px;padding:0 8px;border:1px solid var(--border2);border-radius:6px;background:none;color:var(--text3);font-family:inherit;font-size:10px;cursor:pointer;transition:all .2s}
+.pin-gen-btn:hover{color:var(--blue);border-color:rgba(124,159,255,.4)}
+.pin-copy-all-btn{height:28px;padding:0 12px;border:1px solid var(--border2);border-radius:99px;background:none;color:var(--text3);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;transition:all .2s;white-space:nowrap}
+.pin-copy-all-btn:hover{color:var(--blue);border-color:rgba(124,159,255,.4)}
+
 </style>
 </head>
 <body>
@@ -1745,9 +1766,19 @@ body.light .poll-ev-banner{background:rgba(26,63,196,.04);border-color:rgba(26,6
                 <input id="pollLinkInput" readonly style="flex:1;height:38px;padding:0 12px;background:rgba(255,255,255,.04);border:1px solid var(--border2);border-radius:var(--radius-lg);color:var(--blue);font-family:var(--font-mono,monospace);font-size:12px;outline:none" value="">
                 <button class="btn btn-primary" style="height:38px;white-space:nowrap" onclick="copyPollLinkModal()">📋 Copier</button>
               </div>
-              <div style="display:flex;gap:8px">
+              <div style="display:flex;gap:8px;margin-bottom:16px">
                 <button class="btn" style="flex:1;height:36px;font-size:12px" onclick="window.open(document.getElementById('pollLinkInput').value,'_blank')">↗ Ouvrir</button>
                 <button class="btn" style="flex:1;height:36px;font-size:12px" onclick="closePollModal()">Fermer</button>
+              </div>
+              <div style="border-top:1px solid var(--border);padding-top:14px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+                  <span style="font-size:11px;font-weight:800;color:var(--text3);letter-spacing:.06em;text-transform:uppercase">🔒 Codes PIN</span>
+                  <button class="pin-copy-all-btn" onclick="copyAllPins()">📋 Copier tous les codes</button>
+                  <button class="pin-copy-all-btn" onclick="generateAllPins()">⚡ Générer tous</button>
+                </div>
+                <div style="max-height:220px;overflow-y:auto">
+                  <table class="pin-admin-table" id="pinAdminTable"><tbody></tbody></table>
+                </div>
               </div>
             </div>
           </div>
@@ -2112,7 +2143,7 @@ async function initPollPage(){
   if(!sb){ setTimeout(initPollPage, 200); return; }
   try{
     const [pRes, pollRes] = await Promise.all([
-      sb.from('participants').select('id,name').order('name'),
+      sb.from('participants').select('id,name,poll_pin').order('name'),
       sb.from('tdd_poll').select('participant_id,response')
     ]);
     pollParticipants = pRes.data || [];
@@ -2144,22 +2175,26 @@ function filterPollNames(){
   renderPollNames(q);
 }
 
-function renderPollNames(q=''){
+function renderPollNames(q){
+  q = q||'';
   const list = document.getElementById('pollNamesList');
   if(!list) return;
   const filtered = q
-    ? pollParticipants.filter(p=>p.name.toLowerCase().includes(q.toLowerCase()))
+    ? pollParticipants.filter(function(p){return p.name.toLowerCase().includes(q.toLowerCase());})
     : pollParticipants;
   if(!filtered.length){
     list.innerHTML='<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Aucun joueur trouvé</div>';
     return;
   }
-  list.innerHTML = filtered.map(p=>{
+  list.innerHTML = filtered.map(function(p){
     const resp = pollResults[p.id];
-    const badge = resp ? `<span class="poll-name-voted ${resp}">${POLL_LABELS[resp]}</span>` : '';
-    return `<button class="poll-name-btn" onclick="selectPollParticipant(${p.id},'${p.name.replace(/'/g,"\'")}')">
-      <span>${p.name}</span>${badge}
-    </button>`;
+    const badge = resp ? '<span class="poll-name-voted '+resp+'">'+POLL_LABELS[resp]+'</span>' : '';
+    const lock = p.poll_pin ? '<span style="font-size:11px;color:var(--text3);opacity:.6">🔒</span>' : '';
+    const safeName = p.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return '<button class="poll-name-btn" onclick="selectPollParticipant('+p.id+',\''+safeName+'\')">'
+      +'<span>'+p.name+'</span>'
+      +'<span style="display:flex;align-items:center;gap:6px">'+badge+lock+'</span>'
+      +'</button>';
   }).join('');
 }
 
@@ -2171,11 +2206,20 @@ function selectPollParticipant(id, name){
   pollSelectedId = id;
   pollSelectedName = name;
   document.getElementById('pollSelectedName').textContent = name;
-  // Pre-select current vote if exists
   document.querySelectorAll('.poll-choice').forEach(b=>b.classList.remove('selected'));
   const existing = pollResults[id];
   if(existing) document.querySelector(`.poll-choice.${existing}`)?.classList.add('selected');
-  pollStep(2);
+  // Si le joueur a un PIN, demander la vérification
+  const p = pollParticipants.find(x=>x.id===id);
+  if(p && p.poll_pin){
+    document.getElementById('pollPinName').textContent = name;
+    document.getElementById('pollPinInp').value = '';
+    document.getElementById('pollPinError').textContent = '';
+    document.getElementById('pollPinInp').classList.remove('error','ok');
+    pollStep('2b');
+  } else {
+    pollStep(2);
+  }
 }
 
 async function submitPollVote(response){
@@ -2232,12 +2276,12 @@ function getPollCounts(){
 }
 
 function pollStep(n){
-  [1,2,3].forEach(i=>{
+  ['1','2','2b','3'].forEach(i=>{
     const el=document.getElementById('pollStep'+i);
-    if(el)el.style.display=i===n?'':'none';
+    if(el)el.style.display=(String(i)===String(n))?'':'none';
   });
-  if(n===1)document.getElementById('pollSearchInp').value='';
-  if(n===1)renderPollNames('');
+  if(n===1){document.getElementById('pollSearchInp').value='';renderPollNames('');}
+  if(n==='2b')setTimeout(()=>document.getElementById('pollPinInp')?.focus(),100);
 }
 
 /* ── Bannière sondage dans l'onglet TDD (vue admin/staff) ── */
@@ -2266,11 +2310,79 @@ function updatePollEvBanner(){
 }
 
 
-function openPollModal(){
+
+async function openPollModal(){
   const url=window.location.href.split('?')[0]+'?poll=tdd';
   document.getElementById('pollLinkInput').value=url;
   document.getElementById('pollModal').style.display='flex';
+  await renderPinAdminTable();
 }
+
+async function renderPinAdminTable(){
+  const tbody=document.querySelector('#pinAdminTable tbody');
+  if(!tbody)return;
+  tbody.innerHTML='<tr><td colspan="3" style="color:var(--text3);font-size:12px;padding:10px">Chargement…</td></tr>';
+  try{
+    const{data}=await sb.from('participants').select('id,name,poll_pin').order('name');
+    if(!data||!data.length){tbody.innerHTML='<tr><td colspan="3" style="color:var(--text3);font-size:12px">Aucun participant</td></tr>';return;}
+    tbody.innerHTML=data.map(p=>`<tr>
+      <td style="font-weight:700;color:var(--text)">${p.name}</td>
+      <td><span class="pin-code" id="pin_${p.id}">${p.poll_pin||'—'}</span></td>
+      <td style="text-align:right;display:flex;gap:6px;justify-content:flex-end">
+        <button class="pin-gen-btn" onclick="genPin(${p.id})">⚡ Générer</button>
+        <button class="pin-gen-btn" onclick="removePin(${p.id})">✕</button>
+      </td>
+    </tr>`).join('');
+  }catch(e){tbody.innerHTML='<tr><td colspan="3" style="color:var(--red);font-size:12px">Erreur de chargement</td></tr>';}
+}
+
+function genPinCode(){return Math.random().toString(36).toUpperCase().slice(2,6);}
+
+async function genPin(id){
+  const pin=genPinCode();
+  try{
+    await sb.from('participants').update({poll_pin:pin}).eq('id',id);
+    const el=document.getElementById('pin_'+id);
+    if(el)el.textContent=pin;
+    // Mettre à jour pollParticipants local
+    const p=pollParticipants.find(x=>x.id===id);
+    if(p)p.poll_pin=pin;
+    toast('PIN généré pour le joueur');
+  }catch(e){toast('Erreur lors de la génération');}
+}
+
+async function removePin(id){
+  try{
+    await sb.from('participants').update({poll_pin:null}).eq('id',id);
+    const el=document.getElementById('pin_'+id);
+    if(el)el.textContent='—';
+    const p=pollParticipants.find(x=>x.id===id);
+    if(p)p.poll_pin=null;
+  }catch(e){toast('Erreur');}
+}
+
+async function generateAllPins(){
+  if(!confirm('Générer de nouveaux PINs pour tous les joueurs sans PIN ?'))return;
+  try{
+    const{data}=await sb.from('participants').select('id').is('poll_pin',null);
+    for(const p of (data||[])){
+      const pin=genPinCode();
+      await sb.from('participants').update({poll_pin:pin}).eq('id',p.id);
+    }
+    await renderPinAdminTable();
+    toast('PINs générés !');
+  }catch(e){toast('Erreur lors de la génération');}
+}
+
+async function copyAllPins(){
+  try{
+    const{data}=await sb.from('participants').select('name,poll_pin').order('name');
+    const txt=(data||[]).filter(p=>p.poll_pin).map(p=>`${p.name} : ${p.poll_pin}`).join('\n');
+    if(!txt){toast('Aucun PIN à copier');return;}
+    navigator.clipboard.writeText(txt).then(()=>toast('Tous les codes copiés !'));
+  }catch(e){toast('Erreur');}
+}
+
 function closePollModal(){
   document.getElementById('pollModal').style.display='none';
 }
@@ -3144,19 +3256,21 @@ function clearStatsSearch(){
 /* ── Calcul des joueurs sous la moyenne ────────────── */
 function computeBelowAvg(){
   if(participants.length<3)return new Set();
-  const avgDrv=participants.reduce((s,p)=>s+(p.driver_count||0),0)/participants.length;
-  const avgVip=participants.reduce((s,p)=>s+(p.vip_count||0),0)/participants.length;
-  const withRate=participants.map(p=>{const w=getPlayerWeeks(p);return w.length?w.filter(x=>x.validated).length/w.length:null;}).filter(x=>x!==null);
-  const avgRate=withRate.length?withRate.reduce((s,v)=>s+v,0)/withRate.length:null;
+  // Critère unique : taux de validation des coffres uniquement
+  // (ne pas pénaliser les joueurs pas encore tirés au train/VIP)
+  const withRate=participants.map(p=>{
+    const w=getPlayerWeeks(p);
+    return w.length>=2?w.filter(x=>x.validated).length/w.length:null;
+  }).filter(x=>x!==null);
+  if(withRate.length<3)return new Set(); // pas assez de données
+  const avgRate=withRate.reduce((s,v)=>s+v,0)/withRate.length;
   const result=new Set();
   participants.forEach(p=>{
     const weeks=getPlayerWeeks(p);
     if(weeks.length<2)return; // pas assez d'historique
-    let below=0;
-    if((p.driver_count||0)<avgDrv*0.7)below++;
-    if((p.vip_count||0)<avgVip*0.7)below++;
-    if(avgRate!==null){const r=weeks.length?weeks.filter(w=>w.validated).length/weeks.length:null;if(r!==null&&r<avgRate-0.15)below++;}
-    if(below>=2)result.add(p.id);
+    const rate=weeks.filter(w=>w.validated).length/weeks.length;
+    // Signaler uniquement si taux significativement sous la moyenne (>15 points d'écart)
+    if(rate<avgRate-0.15)result.add(p.id);
   });
   return result;
 }
@@ -3211,9 +3325,7 @@ function renderStatsPodium(){
       const w=getPlayerWeeks(p);
       const rate=w.length?Math.round(w.filter(x=>x.validated).length/w.length*100):null;
       const tips=[];
-      if((p.driver_count||0)<avgDrv*0.7)tips.push(`🚂 ${p.driver_count||0} chauf. (moy. ${avgDrv})`);
-      if((p.vip_count||0)<avgVip*0.7)tips.push(`⭐ ${p.vip_count||0} VIP (moy. ${avgVip})`);
-      if(rate!==null&&rate<(avgRate-15))tips.push(`📈 ${rate}% valid. (moy. ${avgRate}%)`);
+      if(rate!==null)tips.push(`📦 ${rate}% de coffres validés (moy. guilde : ${avgRate}%)`);
       return`<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-bottom:1px solid rgba(255,107,107,0.1)">
         <span style="font-size:14px;flex-shrink:0">⚠️</span>
         <div style="flex:1;min-width:0">
@@ -3375,7 +3487,7 @@ function renderStatsCards(){
     else if((p.driver_count||0)===0&&(p.vip_count||0)>0)badges.push('<span class="stat-badge amber">🚂 Jamais chauf.</span>');
     else if((p.vip_count||0)===0&&(p.driver_count||0)>0)badges.push('<span class="stat-badge amber">⭐ Jamais VIP</span>');
     if(bestStreak>0&&bestStreak===totalWeeks&&totalWeeks>=4)badges.push(`<span class="stat-badge gold">💎 Série parfaite</span>`);
-    if(isBelowAvg)badges.push('<span class="stat-badge red">📉 Sous la moyenne</span>');
+    if(isBelowAvg)badges.push('<span class="stat-badge red">📦 Coffres insuffisants</span>');
     const last10=weeks.slice(-10);
     const streakDots=last10.map(w=>`<span class="stat-streak-dot ${w.validated?'ok':'ko'}"></span>`).join('');
     const vr=validRate!==null?validRate:0;
@@ -4082,6 +4194,21 @@ window.addEventListener('load',()=>{
         </button>
       </div>
       <button class="poll-back-btn" onclick="pollStep(1)">← Changer de nom</button>
+    </div>
+
+    <!-- Étape 2b : vérification PIN -->
+    <div id="pollStep2b" style="display:none">
+      <div id="pollPinChip" class="poll-selected-chip">
+        <span style="font-size:18px">🔐</span>
+        <span class="poll-selected-chip-name" id="pollPinName"></span>
+      </div>
+      <div class="step-label">Ton code PIN</div>
+      <div class="poll-pin-wrap">
+        <input class="poll-pin-inp" id="pollPinInp" type="text" maxlength="6" placeholder="_ _ _ _" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')" onkeydown="if(event.key==='Enter')verifyPollPin()">
+        <div class="poll-pin-error" id="pollPinError"></div>
+        <button class="poll-pin-submit" onclick="verifyPollPin()">Confirmer</button>
+      </div>
+      <button class="back-btn" onclick="pollStep(2)">← Retour</button>
     </div>
 
     <!-- Étape 3 : confirmation -->
