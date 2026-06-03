@@ -3374,6 +3374,8 @@ function computeBelowAvg(){
   participants.forEach(p=>{
     const weeks=getPlayerWeeks(p);
     if(weeks.length<2)return; // pas assez d'historique
+    // Ne pas signaler les joueurs jamais tirés au train ni en VIP
+    if(!(p.driver_count||0) && !(p.vip_count||0))return;
     const rate=weeks.filter(w=>w.validated).length/weeks.length;
     // Signaler uniquement si taux significativement sous la moyenne (>15 points d'écart)
     if(rate<avgRate-0.15)result.add(p.id);
