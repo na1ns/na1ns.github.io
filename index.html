@@ -1431,6 +1431,41 @@ body.light .poll-ev-banner{background:rgba(26,63,196,.04);border-color:rgba(26,6
 .pin-copy-all-btn{height:28px;padding:0 12px;border:1px solid var(--border2);border-radius:99px;background:none;color:var(--text3);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;transition:all .2s;white-space:nowrap}
 .pin-copy-all-btn:hover{color:var(--blue);border-color:rgba(124,159,255,.4)}
 
+/* ══ SYSTÈME DE SANCTIONS ══════════════════════════════════════ */
+.planning-role-wrap{display:flex;align-items:center;gap:6px;flex:1}
+.planning-absent-btn{flex-shrink:0;width:20px;height:20px;border-radius:50%;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.2);color:var(--red);font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;opacity:0;line-height:1}
+.planning-day-card:hover .planning-absent-btn{opacity:1}
+.planning-absent-btn:hover{background:rgba(255,107,107,.2);transform:scale(1.1)}
+/* Sanction modal */
+.sanction-step{animation:fadeIn .2s ease}
+.sanction-player-chip{display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(255,107,107,.06);border:1px solid rgba(255,107,107,.2);border-radius:var(--radius-lg);margin-bottom:16px}
+.sanction-player-name{font-weight:800;color:var(--text);font-size:14px}
+.sanction-role-tag{font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;background:rgba(255,107,107,.1);color:var(--red)}
+.tickets-slider-wrap{display:flex;align-items:center;gap:12px;margin:12px 0}
+.tickets-slider{flex:1;accent-color:var(--red)}
+.tickets-val{font-family:var(--font-mono,monospace);font-size:20px;font-weight:800;color:var(--red);min-width:28px;text-align:center}
+.sanction-preview{display:flex;gap:12px;padding:10px 14px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:var(--radius-lg);font-size:12px;margin-bottom:12px}
+.sanction-preview-item{display:flex;flex-direction:column;gap:2px;flex:1}
+.sanction-preview-label{color:var(--text3);font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.sanction-preview-val{font-weight:800;color:var(--text)}
+.sanction-preview-val.after{color:var(--red)}
+.reason-inp{width:100%;height:36px;padding:0 12px;background:rgba(255,255,255,.03);border:1px solid var(--border2);border-radius:var(--radius-lg);color:var(--text);font-family:inherit;font-size:12px;outline:none;margin-bottom:14px}
+.reason-inp:focus{border-color:var(--blue2)}
+.reason-inp::placeholder{color:var(--text4)}
+.replace-list{display:flex;flex-direction:column;gap:4px;max-height:250px;overflow-y:auto}
+.replace-player-btn{width:100%;text-align:left;padding:10px 14px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:var(--radius-lg);color:var(--text);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:space-between}
+.replace-player-btn:hover{border-color:var(--blue);background:rgba(124,159,255,.05)}
+.replace-player-elig{font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:rgba(72,199,142,.1);color:var(--green)}
+/* Sanction badge & history on player card */
+.sanction-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:6px;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.2);font-size:11px;font-weight:700;color:var(--red)}
+.sanction-hist-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px}
+.sanction-hist-row:last-child{border-bottom:none}
+.sanction-hist-date{font-size:10px;color:var(--text3);white-space:nowrap}
+.sanction-hist-tickets{font-family:var(--font-mono,monospace);font-weight:700;color:var(--red);flex-shrink:0}
+.sanction-hist-reason{color:var(--text2);flex:1;font-style:italic}
+body.light .planning-absent-btn{background:rgba(184,32,32,.06);border-color:rgba(184,32,32,.15)}
+body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(--border2)}
+
 </style>
 </head>
 <body>
@@ -2117,24 +2152,22 @@ CREATE POLICY "perm_all" ON app_config
 
 // ══ SYSTÈME DE SONDAGE TDD ══════════════════════════════════════════════════
 let pollParticipants = [];
-let pollResults = {};        // participantId → 'present'|'remplacant'|'absent'
+let pollResults = {};
 let pollSelectedId = null;
 let pollSelectedName = null;
 const POLL_ROLE_MAP = { present:'starter', remplacant:'sub', absent:'none' };
 const POLL_ICONS = { present:'✅', remplacant:'🔄', absent:'❌' };
 const POLL_LABELS = { present:'Présent', remplacant:'Remplaçant', absent:'Absent' };
 
-/* ── Détection mode poll ── */
 function checkPollMode(){
   const params = new URLSearchParams(window.location.search);
   if(params.get('poll') !== 'tdd') return false;
-  // Cacher les écrans login/app, afficher le sondage
-  const ls=document.getElementById('loginScreen');
-  if(ls)ls.style.display='none';
-  const as=document.getElementById('appScreen');
-  if(as)as.style.display='none';
-  const po=document.getElementById('pollOverlay');
-  if(po)po.style.display='flex';
+  const ls = document.getElementById('loginScreen');
+  if(ls) ls.style.display = 'none';
+  const as = document.getElementById('appScreen');
+  if(as) as.style.display = 'none';
+  const po = document.getElementById('pollOverlay');
+  if(po) po.style.display = 'flex';
   initPollPage();
   return true;
 }
@@ -2147,11 +2180,12 @@ async function initPollPage(){
       sb.from('tdd_poll').select('participant_id,response')
     ]);
     pollParticipants = pRes.data || [];
-    (pollRes.data||[]).forEach(r=>{ pollResults[r.participant_id]=r.response; });
+    (pollRes.data||[]).forEach(r=>{ pollResults[r.participant_id] = r.response; });
   }catch(e){
     pollParticipants = [];
+    console.warn('Poll init error:', e);
   }
-  // Restaurer le dernier choix de nom (localStorage)
+  // Restaurer si déjà voté
   const savedId = parseInt(localStorage.getItem('poll_participant_id'));
   const savedName = localStorage.getItem('poll_participant_name');
   if(savedId && savedName && pollResults[savedId]){
@@ -2162,12 +2196,17 @@ async function initPollPage(){
     renderPollNames('');
   }
   // Temps réel
-  sb.channel('tdd_poll_rt').on('postgres_changes',{event:'*',schema:'public',table:'tdd_poll'},(payload)=>{
-    const r = payload.new || payload.old;
-    if(r) pollResults[r.participant_id] = r.response;
-    refreshPollNameBadges();
-    updatePollEvBanner();
-  }).subscribe();
+  try{
+    sb.channel('tdd_poll_rt').on('postgres_changes',
+      {event:'*', schema:'public', table:'tdd_poll'},
+      (payload)=>{
+        const r = payload.new || payload.old;
+        if(r) pollResults[r.participant_id] = r.response;
+        refreshPollNameBadges();
+        updatePollEvBanner();
+      }
+    ).subscribe();
+  }catch(e){}
 }
 
 function filterPollNames(){
@@ -2176,79 +2215,102 @@ function filterPollNames(){
 }
 
 function renderPollNames(q){
-  q = q||'';
+  q = q || '';
   const list = document.getElementById('pollNamesList');
   if(!list) return;
   const filtered = q
-    ? pollParticipants.filter(function(p){return p.name.toLowerCase().includes(q.toLowerCase());})
+    ? pollParticipants.filter(function(p){ return p.name.toLowerCase().includes(q.toLowerCase()); })
     : pollParticipants;
   if(!filtered.length){
-    list.innerHTML='<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Aucun joueur trouvé</div>';
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Aucun joueur trouvé</div>';
     return;
   }
   list.innerHTML = filtered.map(function(p){
     const resp = pollResults[p.id];
-    const badge = resp ? '<span class="poll-name-voted '+resp+'">'+POLL_LABELS[resp]+'</span>' : '';
+    const badge = resp ? '<span class="poll-name-voted ' + resp + '">' + POLL_LABELS[resp] + '</span>' : '';
     const lock = p.poll_pin ? '<span style="font-size:11px;color:var(--text3);opacity:.6">🔒</span>' : '';
     const safeName = p.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-    return '<button class="poll-name-btn" onclick="selectPollParticipant('+p.id+',\''+safeName+'\')">'
-      +'<span>'+p.name+'</span>'
-      +'<span style="display:flex;align-items:center;gap:6px">'+badge+lock+'</span>'
-      +'</button>';
+    return '<button class="poll-name-btn" onclick="selectPollParticipant(' + p.id + ',\'' + safeName + '\')">'
+      + '<span>' + p.name + '</span>'
+      + '<span style="display:flex;align-items:center;gap:6px">' + badge + lock + '</span>'
+      + '</button>';
   }).join('');
 }
 
 function refreshPollNameBadges(){
-  renderPollNames(document.getElementById('pollSearchInp')?.value||'');
+  renderPollNames(document.getElementById('pollSearchInp') ? document.getElementById('pollSearchInp').value : '');
 }
 
 function selectPollParticipant(id, name){
   pollSelectedId = id;
   pollSelectedName = name;
-  document.getElementById('pollSelectedName').textContent = name;
-  document.querySelectorAll('.poll-choice').forEach(b=>b.classList.remove('selected'));
-  const existing = pollResults[id];
-  if(existing) document.querySelector(`.poll-choice.${existing}`)?.classList.add('selected');
-  // Si le joueur a un PIN, demander la vérification
-  const p = pollParticipants.find(x=>x.id===id);
+  const p = pollParticipants.find(function(x){ return x.id === id; });
   if(p && p.poll_pin){
+    // Joueur avec PIN : demander vérification
     document.getElementById('pollPinName').textContent = name;
     document.getElementById('pollPinInp').value = '';
     document.getElementById('pollPinError').textContent = '';
     document.getElementById('pollPinInp').classList.remove('error','ok');
     pollStep('2b');
   } else {
+    // Pas de PIN : accès direct au choix
+    document.getElementById('pollSelectedName').textContent = name;
+    document.querySelectorAll('.poll-choice').forEach(function(b){ b.classList.remove('selected'); });
+    const existing = pollResults[id];
+    if(existing) { const btn = document.querySelector('.poll-choice.' + existing); if(btn) btn.classList.add('selected'); }
     pollStep(2);
+  }
+}
+
+function verifyPollPin(){
+  const entered = document.getElementById('pollPinInp').value.trim().toUpperCase();
+  const p = pollParticipants.find(function(x){ return x.id === pollSelectedId; });
+  const correctPin = p && p.poll_pin ? p.poll_pin.toUpperCase() : null;
+  if(!correctPin || entered === correctPin){
+    document.getElementById('pollPinInp').classList.remove('error');
+    document.getElementById('pollPinInp').classList.add('ok');
+    document.getElementById('pollSelectedName').textContent = pollSelectedName;
+    document.querySelectorAll('.poll-choice').forEach(function(b){ b.classList.remove('selected'); });
+    const existing = pollResults[pollSelectedId];
+    if(existing){ const btn = document.querySelector('.poll-choice.' + existing); if(btn) btn.classList.add('selected'); }
+    setTimeout(function(){ pollStep(2); }, 300);
+  } else {
+    const inp = document.getElementById('pollPinInp');
+    inp.classList.remove('ok');
+    inp.classList.add('error');
+    document.getElementById('pollPinError').textContent = 'Code incorrect. Contacte ton admin.';
+    setTimeout(function(){ inp.classList.remove('error'); }, 600);
   }
 }
 
 async function submitPollVote(response){
   if(!pollSelectedId) return;
-  document.querySelectorAll('.poll-choice').forEach(b=>b.classList.remove('selected'));
-  document.querySelector(`.poll-choice.${response}`)?.classList.add('selected');
+  document.querySelectorAll('.poll-choice').forEach(function(b){ b.classList.remove('selected'); });
+  const btn = document.querySelector('.poll-choice.' + response);
+  if(btn) btn.classList.add('selected');
   try{
-    // 1. Sauvegarder dans tdd_poll
     await sb.from('tdd_poll').upsert({
       participant_id: pollSelectedId,
       participant_name: pollSelectedName,
-      response,
+      response: response,
       updated_at: new Date().toISOString()
     }, {onConflict:'participant_id'});
-    // 2. Mettre à jour event_roles directement (sync TDD tab)
-    const evRole = POLL_ROLE_MAP[response];
-    await sb.from('event_roles').upsert({
-      player_id: pollSelectedId,
-      role: evRole,
-      nb_teams: 1,
-      updated_at: new Date().toISOString()
-    }, {onConflict:'player_id'});
-    // Mémoriser le choix
     localStorage.setItem('poll_participant_id', pollSelectedId);
     localStorage.setItem('poll_participant_name', pollSelectedName);
     pollResults[pollSelectedId] = response;
+    // Tenter sync event_roles (optionnel, pas bloquant)
+    try{
+      await sb.from('event_roles').upsert({
+        player_id: pollSelectedId,
+        role: POLL_ROLE_MAP[response],
+        nb_teams: 1,
+        updated_at: new Date().toISOString()
+      }, {onConflict:'player_id'});
+    }catch(e2){ /* event_roles optionnel */ }
     showPollConfirm(response, true);
   }catch(e){
-    alert('Erreur lors de l\'enregistrement. Réessaie.');
+    document.getElementById('pollPinError') && (document.getElementById('pollPinError').textContent = '');
+    alert('Erreur lors de l\'enregistrement. Vérifie ta connexion.');
   }
 }
 
@@ -2256,148 +2318,188 @@ function showPollConfirm(response, isNew){
   const counts = getPollCounts();
   document.getElementById('pollConfirmIcon').textContent = POLL_ICONS[response];
   document.getElementById('pollConfirmMsg').textContent = isNew
-    ? `${pollSelectedName}, ta réponse a été enregistrée !`
-    : `${pollSelectedName}, tu as déjà répondu.`;
+    ? (pollSelectedName + ', ta réponse a été enregistrée !')
+    : (pollSelectedName + ', tu as déjà répondu.');
   document.getElementById('pollConfirmSub').textContent =
-    response==='present' ? 'Tu es inscrit comme titulaire.' :
-    response==='remplacant' ? 'Tu es inscrit comme remplaçant.' :
+    response === 'present' ? 'Tu es inscrit comme titulaire.' :
+    response === 'remplacant' ? 'Tu es inscrit comme remplaçant.' :
     'Tu es inscrit comme absent.';
-  document.getElementById('pollConfirmSummary').innerHTML = `
-    <span class="poll-summary-pill present">✅ ${counts.present} présent${counts.present>1?'s':''}</span>
-    <span class="poll-summary-pill remplacant">🔄 ${counts.remplacant} remplaçant${counts.remplacant>1?'s':''}</span>
-    <span class="poll-summary-pill absent">❌ ${counts.absent} absent${counts.absent>1?'s':''}</span>`;
+  document.getElementById('pollConfirmSummary').innerHTML =
+    '<span class="poll-summary-pill present">✅ ' + counts.present + ' présent' + (counts.present>1?'s':'') + '</span>'
+    + '<span class="poll-summary-pill remplacant">🔄 ' + counts.remplacant + ' remplaçant' + (counts.remplacant>1?'s':'') + '</span>'
+    + '<span class="poll-summary-pill absent">❌ ' + counts.absent + ' absent' + (counts.absent>1?'s':'') + '</span>';
   pollStep(3);
 }
 
 function getPollCounts(){
-  const c={present:0,remplacant:0,absent:0};
-  Object.values(pollResults).forEach(r=>{ if(c[r]!==undefined)c[r]++; });
+  const c = {present:0, remplacant:0, absent:0};
+  Object.values(pollResults).forEach(function(r){ if(c[r] !== undefined) c[r]++; });
   return c;
 }
 
 function pollStep(n){
-  ['1','2','2b','3'].forEach(i=>{
-    const el=document.getElementById('pollStep'+i);
-    if(el)el.style.display=(String(i)===String(n))?'':'none';
+  var steps = ['1','2','2b','3'];
+  steps.forEach(function(i){
+    const el = document.getElementById('pollStep' + i);
+    if(el) el.style.display = (String(i) === String(n)) ? '' : 'none';
   });
-  if(n===1){document.getElementById('pollSearchInp').value='';renderPollNames('');}
-  if(n==='2b')setTimeout(()=>document.getElementById('pollPinInp')?.focus(),100);
+  if(n === 1){
+    const inp = document.getElementById('pollSearchInp');
+    if(inp) inp.value = '';
+    renderPollNames('');
+  }
+  if(n === '2b') setTimeout(function(){ const inp = document.getElementById('pollPinInp'); if(inp) inp.focus(); }, 100);
 }
 
-/* ── Bannière sondage dans l'onglet TDD (vue admin/staff) ── */
 async function loadPollResults(){
-  if(!sb)return;
+  if(!sb) return;
   try{
-    const{data}=await sb.from('tdd_poll').select('participant_id,response');
-    pollResults={};
-    (data||[]).forEach(r=>{pollResults[r.participant_id]=r.response;});
+    const {data} = await sb.from('tdd_poll').select('participant_id,response');
+    pollResults = {};
+    (data||[]).forEach(function(r){ pollResults[r.participant_id] = r.response; });
     updatePollEvBanner();
   }catch(e){}
 }
 
 function updatePollEvBanner(){
-  const banner=document.getElementById('pollEvBanner');
-  const pills=document.getElementById('pollEvPills');
-  if(!banner||!pills)return;
-  const total=Object.keys(pollResults).length;
-  if(!total){banner.style.display='none';return;}
-  banner.style.display='flex';
-  const c=getPollCounts();
-  pills.innerHTML=`
-    <span class="poll-summary-pill present">✅ ${c.present} présent${c.present>1?'s':''}</span>
-    <span class="poll-summary-pill remplacant">🔄 ${c.remplacant} remplaçant${c.remplacant>1?'s':''}</span>
-    <span class="poll-summary-pill absent">❌ ${c.absent} absent${c.absent>1?'s':''}</span>`;
+  const banner = document.getElementById('pollEvBanner');
+  const pills = document.getElementById('pollEvPills');
+  if(!banner || !pills) return;
+  const total = Object.keys(pollResults).length;
+  if(!total){ banner.style.display = 'none'; return; }
+  banner.style.display = 'flex';
+  const c = getPollCounts();
+  pills.innerHTML =
+    '<span class="poll-summary-pill present">✅ ' + c.present + ' présent' + (c.present>1?'s':'') + '</span>'
+    + '<span class="poll-summary-pill remplacant">🔄 ' + c.remplacant + ' remplaçant' + (c.remplacant>1?'s':'') + '</span>'
+    + '<span class="poll-summary-pill absent">❌ ' + c.absent + ' absent' + (c.absent>1?'s':'') + '</span>';
 }
 
-
-
-async function openPollModal(){
-  const url=window.location.href.split('?')[0]+'?poll=tdd';
-  document.getElementById('pollLinkInput').value=url;
-  document.getElementById('pollModal').style.display='flex';
-  await renderPinAdminTable();
-}
-
-async function renderPinAdminTable(){
-  const tbody=document.querySelector('#pinAdminTable tbody');
-  if(!tbody)return;
-  tbody.innerHTML='<tr><td colspan="3" style="color:var(--text3);font-size:12px;padding:10px">Chargement…</td></tr>';
-  try{
-    const{data}=await sb.from('participants').select('id,name,poll_pin').order('name');
-    if(!data||!data.length){tbody.innerHTML='<tr><td colspan="3" style="color:var(--text3);font-size:12px">Aucun participant</td></tr>';return;}
-    tbody.innerHTML=data.map(p=>`<tr>
-      <td style="font-weight:700;color:var(--text)">${p.name}</td>
-      <td><span class="pin-code" id="pin_${p.id}">${p.poll_pin||'—'}</span></td>
-      <td style="text-align:right;display:flex;gap:6px;justify-content:flex-end">
-        <button class="pin-gen-btn" onclick="genPin(${p.id})">⚡ Générer</button>
-        <button class="pin-gen-btn" onclick="removePin(${p.id})">✕</button>
-      </td>
-    </tr>`).join('');
-  }catch(e){tbody.innerHTML='<tr><td colspan="3" style="color:var(--red);font-size:12px">Erreur de chargement</td></tr>';}
-}
-
-function genPinCode(){return Math.random().toString(36).toUpperCase().slice(2,6);}
-
-async function genPin(id){
-  const pin=genPinCode();
-  try{
-    await sb.from('participants').update({poll_pin:pin}).eq('id',id);
-    const el=document.getElementById('pin_'+id);
-    if(el)el.textContent=pin;
-    // Mettre à jour pollParticipants local
-    const p=pollParticipants.find(x=>x.id===id);
-    if(p)p.poll_pin=pin;
-    toast('PIN généré pour le joueur');
-  }catch(e){toast('Erreur lors de la génération');}
-}
-
-async function removePin(id){
-  try{
-    await sb.from('participants').update({poll_pin:null}).eq('id',id);
-    const el=document.getElementById('pin_'+id);
-    if(el)el.textContent='—';
-    const p=pollParticipants.find(x=>x.id===id);
-    if(p)p.poll_pin=null;
-  }catch(e){toast('Erreur');}
-}
-
-async function generateAllPins(){
-  if(!confirm('Générer de nouveaux PINs pour tous les joueurs sans PIN ?'))return;
-  try{
-    const{data}=await sb.from('participants').select('id').is('poll_pin',null);
-    for(const p of (data||[])){
-      const pin=genPinCode();
-      await sb.from('participants').update({poll_pin:pin}).eq('id',p.id);
-    }
-    await renderPinAdminTable();
-    toast('PINs générés !');
-  }catch(e){toast('Erreur lors de la génération');}
-}
-
-async function copyAllPins(){
-  try{
-    const{data}=await sb.from('participants').select('name,poll_pin').order('name');
-    const txt=(data||[]).filter(p=>p.poll_pin).map(p=>`${p.name} : ${p.poll_pin}`).join('\n');
-    if(!txt){toast('Aucun PIN à copier');return;}
-    navigator.clipboard.writeText(txt).then(()=>toast('Tous les codes copiés !'));
-  }catch(e){toast('Erreur');}
-}
-
-function closePollModal(){
-  document.getElementById('pollModal').style.display='none';
-}
-function copyPollLinkModal(){
-  const url=document.getElementById('pollLinkInput').value;
-  navigator.clipboard.writeText(url).then(()=>{
-    const btn=event.target;btn.textContent='✓ Copié !';
-    setTimeout(()=>btn.textContent='📋 Copier',2000);
-  });
-}
 function copyPollLink(){
-  const url=window.location.href.split('?')[0]+'?poll=tdd';
-  navigator.clipboard.writeText(url).then(()=>toast('Lien sondage copié !'));
+  const url = window.location.href.split('?')[0] + '?poll=tdd';
+  navigator.clipboard.writeText(url).then(function(){ toast('Lien sondage copié !'); });
+}
+// ────────────────────────────────────────────────────────────────────────────
+
+// ══ SYSTÈME DE SANCTIONS ════════════════════════════════════════════════════
+let sanctionDrawId = null;
+let sanctionRole = null;
+let sanctionPlayerName = null;
+let sanctionsData = [];
+
+async function loadSanctions(){
+  if(!sb)return;
+  try{
+    const{data}=await sb.from('sanctions').select('*').order('created_at',{ascending:false});
+    sanctionsData = data||[];
+  }catch(e){ sanctionsData=[]; }
 }
 
+function openAbsentModal(drawId, role, playerName){
+  sanctionDrawId = drawId;
+  sanctionRole = role;
+  sanctionPlayerName = playerName;
+  document.getElementById('absentPlayerName').textContent = playerName;
+  document.getElementById('absentRoleTag').textContent = role==='driver' ? 'Chauffeur' : 'VIP';
+  document.getElementById('sanctionSlider').value = 2;
+  document.getElementById('sanctionReason').value = '';
+  updateSanctionPreview();
+  showAbsentStep(1);
+  document.getElementById('absentModal').style.display='flex';
+}
+
+function closeAbsentModal(){
+  document.getElementById('absentModal').style.display='none';
+  sanctionDrawId=null; sanctionRole=null; sanctionPlayerName=null;
+}
+
+function showAbsentStep(n){
+  document.getElementById('absentStep1').style.display = n===1?'':'none';
+  document.getElementById('absentStep2').style.display = n===2?'':'none';
+  document.getElementById('absentModalTitle').textContent = n===1 ? 'Signaler une absence' : 'Choisir le remplaçant';
+}
+
+function absentPrevStep(){ showAbsentStep(1); }
+
+function updateSanctionPreview(){
+  const lost = parseInt(document.getElementById('sanctionSlider').value);
+  document.getElementById('sanctionTicketsVal').textContent = lost;
+  const p = participants.find(x=>x.name===sanctionPlayerName);
+  if(!p){ document.getElementById('sanctionPreview').innerHTML=''; return; }
+  const cur = 1+(p.weeks_validated||0)-(p.sanction_malus||0);
+  const after = Math.max(1, cur-lost);
+  document.getElementById('sanctionPreview').innerHTML=`
+    <div class="sanction-preview-item">
+      <span class="sanction-preview-label">Tickets actuels</span>
+      <span class="sanction-preview-val">${Math.max(1,cur)} 🎟️</span>
+    </div>
+    <div style="font-size:18px;color:var(--text3);align-self:center">→</div>
+    <div class="sanction-preview-item">
+      <span class="sanction-preview-label">Après sanction</span>
+      <span class="sanction-preview-val after">${after} 🎟️</span>
+    </div>`;
+}
+
+async function absentNextStep(skipSanction=false){
+  const lost = skipSanction ? 0 : parseInt(document.getElementById('sanctionSlider').value);
+  const reason = document.getElementById('sanctionReason').value.trim();
+  // Appliquer la sanction si > 0 tickets retirés
+  if(lost > 0){
+    const p = participants.find(x=>x.name===sanctionPlayerName);
+    if(p){
+      const newMalus = (p.sanction_malus||0) + lost;
+      await sb.from('participants').update({sanction_malus: newMalus}).eq('id',p.id);
+      await sb.from('sanctions').insert({
+        participant_id: p.id,
+        participant_name: sanctionPlayerName,
+        tickets_lost: lost,
+        reason: reason||null
+      });
+      p.sanction_malus = newMalus;
+      toast(`-${lost} ticket${lost>1?'s':''} pour ${sanctionPlayerName}`);
+    }
+  }
+  // Passer à l'étape 2 : choisir le remplaçant
+  renderReplaceList();
+  showAbsentStep(2);
+}
+
+function renderReplaceList(){
+  const list = document.getElementById('replaceList');
+  const current = weeklyDrawsData.find(d=>d.id===sanctionDrawId);
+  const usedNames = weeklyDrawsData.flatMap(d=>[d.driver,d.vip]);
+  const available = participants.filter(p=>p.name!==sanctionPlayerName && !usedNames.includes(p.name));
+  const elig = available.filter(p=>isEligible(p));
+  const others = available.filter(p=>!isEligible(p));
+  const mkBtn = (p,tag) => `<button class="replace-player-btn" onclick="confirmReplace('${p.name.replace(/'/g,"\'")}')">
+    <span>${p.name}</span>
+    ${tag?'<span class="replace-player-elig">'+tag+'</span>':''}
+  </button>`;
+  list.innerHTML = [
+    elig.length?'<div style="font-size:10px;font-weight:700;color:var(--green);letter-spacing:.08em;text-transform:uppercase;padding:6px 2px">Éligibles</div>':'',
+    ...elig.map(p=>mkBtn(p,'Éligible')),
+    others.length?'<div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;padding:6px 2px;margin-top:8px">Autres joueurs</div>':'',
+    ...others.map(p=>mkBtn(p,''))
+  ].join('');
+  if(!available.length) list.innerHTML='<div style="padding:16px;color:var(--text3);font-size:12px;text-align:center">Aucun joueur disponible.</div>';
+}
+
+async function confirmReplace(newPlayerName){
+  if(!sanctionDrawId||!sanctionRole) return;
+  const update = sanctionRole==='driver' ? {driver:newPlayerName} : {vip:newPlayerName};
+  await sb.from('weekly_draws').update(update).eq('id',sanctionDrawId);
+  // Mettre à jour le compteur du remplaçant
+  const p = participants.find(x=>x.name===newPlayerName);
+  if(p){
+    const field = sanctionRole==='driver' ? 'driver_count' : 'vip_count';
+    await sb.from('participants').update({[field]:(p[field]||0)+1}).eq('id',p.id);
+    p[field]=(p[field]||0)+1;
+  }
+  closeAbsentModal();
+  await loadWeeklyDraws();
+  await loadSanctions();
+  toast(`${newPlayerName} remplace ${sanctionPlayerName} !`);
+}
 // ────────────────────────────────────────────────────────────────────────────
 function isAdmin(){return currentUser?.role==='admin';}
 function isStaff(){return currentUser?.role==='staff';}
@@ -2601,6 +2703,7 @@ async function loadAll(){
     initEvRoles();render();renderEventPlayers();renderEventTeams();
     if(canSeeSection('sectionStats'))renderStats();
   loadPollResults();
+  loadSanctions();
     loadDrawBuffer();
   }catch(e){setStatus('err','Erreur : '+(e.message||e));}
 }
@@ -2719,15 +2822,18 @@ function renderPlanning(){
     const dayName=DAYS_LABELS_WEEK[draw.day_index]||`Jour ${draw.day_index+1}`;
     const jsDay=draw.day_index===6?0:draw.day_index+1;
     const isToday=jsDay===todayIdx;
+    const canEdit=isAdminOrStaff();
+    const absBtnDrv=canEdit?`<button class="planning-absent-btn" title="Signaler absent" onclick="openAbsentModal(${draw.id},'driver','${draw.driver.replace(/'/g,"\'")}')">✕</button>`:'';
+    const absBtnVip=canEdit?`<button class="planning-absent-btn" title="Signaler absent" onclick="openAbsentModal(${draw.id},'vip','${draw.vip.replace(/'/g,"\'")}')">✕</button>`:'';
     return `<div class="planning-day-card${isToday?' today':''}">
       <div class="planning-day-name">
         ${isToday?'📍 ':''}${dayName}
         ${isToday?'<span class="planning-today-badge">Aujourd\'hui</span>':''}
       </div>
       <div class="planning-roles">
-        <div class="planning-role"><span class="planning-role-icon">🚗</span><span class="planning-role-name">${draw.driver}</span></div>
+        <div class="planning-role planning-role-wrap"><span class="planning-role-icon">🚗</span><span class="planning-role-name">${draw.driver}</span>${absBtnDrv}</div>
         <span class="planning-sep">·</span>
-        <div class="planning-role"><span class="planning-role-icon">⭐</span><span class="planning-role-name">${draw.vip}</span></div>
+        <div class="planning-role planning-role-wrap"><span class="planning-role-icon">⭐</span><span class="planning-role-name">${draw.vip}</span>${absBtnVip}</div>
       </div>
     </div>`;
   }).join('');
@@ -3522,7 +3628,10 @@ function renderStatsCards(){
         <div class="stat-row"><span class="stat-row-label">Dernier Chauffeur</span><span class="stat-row-val" style="font-size:10px;min-width:60px">${fmtDate(lastDriver)}</span></div>
         <div class="stat-row"><span class="stat-row-label">Dernier VIP</span><span class="stat-row-val" style="font-size:10px;min-width:60px">${fmtDate(lastVip)}</span></div>
         <div class="stat-section-title">🏆 Coffres & Éligibilité</div>
-        <div class="stat-row"><span class="stat-row-label">🎟️ Tickets</span><span class="stat-row-val">${tickets}</span><div class="stat-bar-wrap"><div class="stat-bar purple" style="width:${Math.round(tickets/maxTickets*100)}%"></div></div></div>
+        <div class="stat-row"><span class="stat-row-label">🎟️ Tickets effectifs</span><span class="stat-row-val" style="${(p.sanction_malus||0)>0?'color:var(--red)':''}">
+          ${Math.max(1,tickets-(p.sanction_malus||0))}
+          ${(p.sanction_malus||0)>0?'<span style="font-size:10px;color:var(--red);margin-left:4px">(-'+(p.sanction_malus||0)+' sanction)</span>':''}
+        </span><div class="stat-bar-wrap"><div class="stat-bar purple" style="width:${Math.round(tickets/maxTickets*100)}%"></div></div></div>
         <div class="stat-row"><span class="stat-row-label">Semaines validées</span><span class="stat-row-val">${validatedWeeks}/${totalWeeks}</span><div class="stat-bar-wrap"><div class="stat-bar green" style="width:${vr}%"></div></div></div>
         <div class="stat-row"><span class="stat-row-label">Taux de validation</span><span class="stat-row-val" style="color:${vrColor}">${validRate!==null?validRate+'%':'—'}</span><div class="stat-bar-wrap"><div class="stat-bar ${vrBar}" style="width:${vr}%"></div></div></div>
         <div class="stat-row"><span class="stat-row-label">Meilleure série</span><span class="stat-row-val" style="color:var(--gold)">${bestStreak} sem.</span></div>
@@ -3531,6 +3640,7 @@ function renderStatsCards(){
         <div class="stat-section-title">📅 Historique (${totalWeeks} semaine${totalWeeks>1?'s':''})</div>
         <div class="week-hist">${weekRows}</div>
       </div>
+      ${(()=>{const ps=sanctionsData.filter(s=>s.participant_name===p.name);if(!ps.length)return'';return`<div style="padding:10px 14px 0"><div class="stat-section-title" style="margin-bottom:8px">⚡ Sanctions (${ps.length})</div>${ps.slice(0,5).map(s=>{const d=new Date(s.created_at).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'});return`<div class="sanction-hist-row"><span class="sanction-hist-tickets">-${s.tickets_lost}🎟️</span><span class="sanction-hist-reason">${s.reason||'Absence non justifiée'}</span><span class="sanction-hist-date">${d}</span></div>`;}).join('')}</div>`;})()}
       ${badges.length?`<div class="stat-badge-row">${badges.join('')}</div>`:''}
     </div>`;
   }).join('');
@@ -4220,6 +4330,55 @@ window.addEventListener('load',()=>{
         <div class="poll-summary" id="pollConfirmSummary"></div>
       </div>
       <button class="poll-back-btn" style="margin-top:20px" onclick="pollStep(1)">Modifier ma réponse</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══ MODAL ABSENCE / SANCTION ══ -->
+<div class="modal-overlay" id="absentModal" style="display:none" onclick="if(event.target===this)closeAbsentModal()">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <span id="absentModalTitle">Signaler une absence</span>
+      <button class="modal-close" onclick="closeAbsentModal()">×</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Étape 1 : sanction -->
+      <div id="absentStep1" class="sanction-step">
+        <div class="sanction-player-chip">
+          <span style="font-size:20px">⚠️</span>
+          <div>
+            <div class="sanction-player-name" id="absentPlayerName"></div>
+            <span class="sanction-role-tag" id="absentRoleTag"></span>
+          </div>
+        </div>
+        <div class="modal-section-title" style="margin-bottom:10px">Sanctionner ce joueur ?</div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:14px;line-height:1.6">
+          Retire des tickets à ce joueur. Moins de tickets = moins de chances d'être tiré au sort.
+        </div>
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">Tickets à retirer</div>
+        <div class="tickets-slider-wrap">
+          <span style="font-size:12px;color:var(--text3)">0</span>
+          <input class="tickets-slider" type="range" id="sanctionSlider" min="0" max="5" value="2" oninput="updateSanctionPreview()">
+          <span style="font-size:12px;color:var(--text3)">5</span>
+          <span class="tickets-val" id="sanctionTicketsVal">2</span>
+        </div>
+        <div class="sanction-preview" id="sanctionPreview"></div>
+        <input class="reason-inp" id="sanctionReason" type="text" placeholder="Raison (optionnel)…">
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-danger" style="flex:1;height:38px" onclick="absentNextStep()">⚡ Sanctionner</button>
+          <button class="btn" style="flex:1;height:38px" onclick="absentNextStep(true)">Passer sans sanction</button>
+        </div>
+      </div>
+
+      <!-- Étape 2 : choisir remplaçant -->
+      <div id="absentStep2" class="sanction-step" style="display:none">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px">Choisir le remplaçant</div>
+        <div class="replace-list" id="replaceList"></div>
+        <button class="btn" style="width:100%;height:36px;margin-top:10px;font-size:12px" onclick="absentPrevStep()">← Retour</button>
+      </div>
+
     </div>
   </div>
 </div>
