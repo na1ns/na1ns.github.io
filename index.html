@@ -1438,6 +1438,9 @@ body.light .poll-ev-banner{background:rgba(26,63,196,.04);border-color:rgba(26,6
 .planning-absent-btn:hover{background:rgba(255,107,107,.2);transform:scale(1.1)}
 /* Sanction modal */
 .sanction-step{animation:fadeIn .2s ease}
+.modal-overlay{position:fixed;inset:0;z-index:500;background:transparent;pointer-events:none}
+.modal-overlay .modal{position:fixed;max-width:380px;width:calc(100vw - 32px);box-shadow:0 8px 40px rgba(0,0,0,.55);z-index:501;pointer-events:all;animation:fadeIn .15s ease}
+.modal-overlay-backdrop{position:fixed;inset:0;z-index:499;background:rgba(0,0,0,.35);backdrop-filter:blur(2px)}
 .sanction-player-chip{display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(255,107,107,.06);border:1px solid rgba(255,107,107,.2);border-radius:var(--radius-lg);margin-bottom:16px}
 .sanction-player-name{font-weight:800;color:var(--text);font-size:14px}
 .sanction-role-tag{font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;background:rgba(255,107,107,.1);color:var(--red)}
@@ -1453,6 +1456,11 @@ body.light .poll-ev-banner{background:rgba(26,63,196,.04);border-color:rgba(26,6
 .reason-inp:focus{border-color:var(--blue2)}
 .reason-inp::placeholder{color:var(--text4)}
 .replace-list{display:flex;flex-direction:column;gap:4px;max-height:250px;overflow-y:auto}
+.chart-card{background:linear-gradient(145deg,var(--surface),var(--surface2));border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;box-shadow:var(--shadow);overflow:hidden}
+.chart-card canvas{width:100%!important;display:block}
+.chart-title{font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.04em;text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.chart-legend{display:flex;align-items:center;gap:8px;font-weight:600;font-size:11px;color:var(--text3);text-transform:none;letter-spacing:0;margin-left:auto}
+.chart-legend span{width:10px;height:10px;border-radius:2px;display:inline-block;vertical-align:middle;margin-right:2px}
 .replace-player-btn{width:100%;text-align:left;padding:10px 14px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:var(--radius-lg);color:var(--text);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:space-between}
 .replace-player-btn:hover{border-color:var(--blue);background:rgba(124,159,255,.05)}
 .replace-player-elig{font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:rgba(72,199,142,.1);color:var(--green)}
@@ -1719,6 +1727,10 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
             <button class="stats-view-tab" id="svtPodium" onclick="setStatsView('podium')">🏆 Podium</button>
             <button class="stats-view-tab active" id="svtCards" onclick="setStatsView('cards')">👤 Joueurs</button>
             <button class="stats-view-tab" id="svtLeaderboard" onclick="setStatsView('leaderboard')">📋 Classement</button>
+            <button class="stats-view-tab" id="svtCharts" onclick="setStatsView('charts')">📈 Graphiques</button>
+            <button class="stats-view-tab" id="svtReliability" onclick="setStatsView('reliability')">🎯 Fiabilité</button>
+            <button class="stats-view-tab" id="svtSanctions" onclick="setStatsView('sanctions')">⚡ Sanctions</button>
+            <button class="stats-view-tab" id="svtDays" onclick="setStatsView('days')">📅 Jours</button>
           </div>
           <div id="statsViewPodium" style="display:none">
             <div id="statsPodium"></div>
@@ -1741,6 +1753,18 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
           </div>
           <div id="statsViewLeaderboard" style="display:none">
             <div id="statsLeaderboard"></div>
+          </div>
+          <div id="statsViewCharts" style="display:none">
+            <div id="statsChartsContainer"></div>
+          </div>
+          <div id="statsViewReliability" style="display:none">
+            <div id="statsReliabilityContainer"></div>
+          </div>
+          <div id="statsViewSanctions" style="display:none">
+            <div id="statsSanctionsContainer"></div>
+          </div>
+          <div id="statsViewDays" style="display:none">
+            <div id="statsDaysContainer"></div>
           </div>
         </div>
       </div>
@@ -2499,7 +2523,7 @@ async function loadSanctions(){
   }catch(e){ sanctionsData=[]; }
 }
 
-function openAbsentModal(drawId, role, playerName){
+function openAbsentModal(evt, drawId, role, playerName){
   sanctionDrawId = drawId;
   sanctionRole = role;
   sanctionPlayerName = playerName;
@@ -2509,11 +2533,49 @@ function openAbsentModal(drawId, role, playerName){
   document.getElementById('sanctionReason').value = '';
   updateSanctionPreview();
   showAbsentStep(1);
-  document.getElementById('absentModal').style.display='flex';
+
+  // Positionner la bulle près du bouton cliqué
+  const modal = document.getElementById('absentModal');
+  const box = modal.querySelector('.modal');
+  modal.style.display = 'flex';
+
+  // Ajouter un backdrop dédié s'il n'existe pas
+  let bd = document.getElementById('absentBackdrop');
+  if(!bd){
+    bd = document.createElement('div');
+    bd.id = 'absentBackdrop';
+    bd.className = 'modal-overlay-backdrop';
+    bd.onclick = closeAbsentModal;
+    document.body.appendChild(bd);
+  }
+  bd.style.display = 'block';
+
+  // Calculer la position
+  const btn = evt && evt.currentTarget ? evt.currentTarget : null;
+  if(btn && box){
+    const r = btn.getBoundingClientRect();
+    const bw = box.offsetWidth || 380;
+    const bh = box.offsetHeight || 400;
+    const margin = 8;
+    let top = r.bottom + margin;
+    let left = r.left + r.width/2 - bw/2;
+    // Rester dans la fenêtre
+    left = Math.max(margin, Math.min(left, window.innerWidth - bw - margin));
+    if(top + bh > window.innerHeight - margin) top = Math.max(margin, r.top - bh - margin);
+    box.style.top = top + 'px';
+    box.style.left = left + 'px';
+  } else if(box){
+    // Fallback centré
+    box.style.top = '50%';
+    box.style.left = '50%';
+    box.style.transform = 'translate(-50%,-50%)';
+  }
 }
 
 function closeAbsentModal(){
   document.getElementById('absentModal').style.display='none';
+  const bd = document.getElementById('absentBackdrop');
+  if(bd) bd.style.display = 'none';
   sanctionDrawId=null; sanctionRole=null; sanctionPlayerName=null;
 }
 
@@ -2931,8 +2993,8 @@ function renderPlanning(){
     const jsDay=draw.day_index===6?0:draw.day_index+1;
     const isToday=jsDay===todayIdx;
     const canEdit=isAdminOrStaff();
-    const absBtnDrv=canEdit?`<button class="planning-absent-btn" title="Signaler absent" onclick="openAbsentModal(${draw.id},'driver','${draw.driver.replace(/'/g,"\'")}')">✕</button>`:'';
-    const absBtnVip=canEdit?`<button class="planning-absent-btn" title="Signaler absent" onclick="openAbsentModal(${draw.id},'vip','${draw.vip.replace(/'/g,"\'")}')">✕</button>`:'';
+    const absBtnDrv=canEdit?`<button class="planning-absent-btn" title="Signaler absent" onclick="openAbsentModal(event,${draw.id},'driver','${draw.driver.replace(/'/g,"\'")}')">✕</button>`:'';
+    const absBtnVip=canEdit?`<button class="planning-absent-btn" title="Signaler absent" onclick="openAbsentModal(event,${draw.id},'vip','${draw.vip.replace(/'/g,"\'")}')">✕</button>`:'';
     return `<div class="planning-day-card${isToday?' today':''}">
       <div class="planning-day-name">
         ${isToday?'📍 ':''}${dayName}
@@ -3078,7 +3140,7 @@ async function archiveWeekFromParticipants(){
       sb.from('weeks_history').insert({
         participant_id:p.id,participant_name:p.name,
         validated,days_done:daysDone,
-        coffres_snapshot:p.coffres_days,archived_at:now
+        coffres_snapshot:p.coffres_days,power_snapshot:p.power_t1||null,archived_at:now
       }),
       validated
         ?sb.from('participants').update({weeks_validated:(p.weeks_validated||0)+1,coffres_days:JSON.stringify([false,false,false,false,false])}).eq('id',p.id)
@@ -3446,12 +3508,16 @@ function setStatSort(key,btn){
 
 function setStatsView(view){
   currentStatsView=view;
-  ['podium','cards','leaderboard'].forEach(v=>{
+  ['podium','cards','leaderboard','charts','reliability','sanctions','days'].forEach(v=>{
     const el=document.getElementById('statsView'+v.charAt(0).toUpperCase()+v.slice(1));
     const tab=document.getElementById('svt'+v.charAt(0).toUpperCase()+v.slice(1));
     if(el)el.style.display=v===view?'':'none';
     if(tab)tab.classList.toggle('active',v===view);
   });
+  if(view==='charts')      renderStatsCharts();
+  if(view==='reliability') renderStatsReliability();
+  if(view==='sanctions')   renderStatsSanctions();
+  if(view==='days')        renderStatsDays();
 }
 
 function onStatsSearch(inp){
@@ -3782,6 +3848,683 @@ function renderStats(){
   renderStatsPodium();
   renderStatsCards();
   renderLeaderboard();
+}
+
+
+/* ══════════════════════════════════════════════════════
+   GRAPHIQUES STATS — canvas natif, aucune dépendance
+   ══════════════════════════════════════════════════════ */
+
+function renderStatsCharts(){
+  const el = document.getElementById('statsChartsContainer');
+  if(!el) return;
+
+  const isDark = !document.body.classList.contains('light');
+  const TEXT   = isDark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.65)';
+  const TEXT2  = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
+  const GRID   = isDark ? 'rgba(255,255,255,0.07)'  : 'rgba(0,0,0,0.07)';
+  const BLUE   = '#7C9FFF';
+  const GOLD   = '#FFB84D';
+  const GREEN  = '#4FD1A5';
+  const RED    = '#FF6B6B';
+  const PURPLE = '#B78AFF';
+
+  // ─── Données ───────────────────────────────────────────────────────────────
+  const sorted = [...participants].sort((a,b)=> (b.driver_count+b.vip_count)-(a.driver_count+a.vip_count));
+  const weeksSet = [...new Set(weeksHistory.map(w=>w.archived_at?w.archived_at.slice(0,10):null).filter(Boolean))].sort();
+
+  const rateData = participants.map(p=>{
+    const w=getPlayerWeeks(p);
+    return {name:p.name, rate:w.length?Math.round(w.filter(x=>x.validated).length/w.length*100):null};
+  }).filter(d=>d.rate!==null).sort((a,b)=>b.rate-a.rate);
+
+  // Évolution semaine par semaine (taux global de validation)
+  const evolData = weeksSet.map(dateStr=>{
+    const ws = weeksHistory.filter(w=>w.archived_at&&w.archived_at.startsWith(dateStr));
+    if(!ws.length) return null;
+    const rate = Math.round(ws.filter(w=>w.validated).length/ws.length*100);
+    return {date:dateStr.slice(5), rate};
+  }).filter(Boolean);
+
+  // Donut éligibles
+  const eligCount = participants.filter(p=>isEligible(p)).length;
+  const nonEligCount = participants.length - eligCount;
+
+  // ─── HTML ──────────────────────────────────────────────────────────────────
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;padding:4px 0 16px">
+      <div class="chart-card"><div class="chart-title">🏎️ Tirages par joueur <span class="chart-legend"><span style="background:${BLUE}"></span>Chauffeur <span style="background:${GOLD}"></span>VIP</span></div><canvas id="chartDraws" height="260"></canvas></div>
+      <div class="chart-card"><div class="chart-title">📦 Taux de validation des coffres</div><canvas id="chartRates" height="260"></canvas></div>
+      <div class="chart-card"><div class="chart-title">📅 Évolution hebdomadaire de la guilde</div><canvas id="chartEvol" height="220"></canvas></div>
+      <div class="chart-card"><div class="chart-title">🏆 Éligibilité de la guilde</div><canvas id="chartDonut" height="220"></canvas></div>
+      <div class="chart-card" style="grid-column:1/-1"><div class="chart-title">📈 Évolution de la puissance totale guilde</div><canvas id="chartPowerEvol" height="180"></canvas></div>
+      <div class="chart-card" style="grid-column:1/-1"><div class="chart-title">⚡ Puissance T1 par joueur <span class="chart-legend"><span style="background:var(--cyan,#4FD1E8)"></span>Puissance <span style="background:rgba(124,159,255,0.35)"></span>Moyenne guilde</span></div><canvas id="chartPower" height="220"></canvas></div>
+    </div>`;
+
+  requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>{
+    drawBarChart('chartDraws', sorted.slice(0,20), {
+      labelKey:'name',
+      series:[{key:'driver_count',color:BLUE,label:'Chauffeur'},{key:'vip_count',color:GOLD,label:'VIP'}],
+      text:TEXT, text2:TEXT2, grid:GRID
+    });
+    drawHorizBarChart('chartRates', rateData.slice(0,20), {
+      valueKey:'rate', labelKey:'name',
+      getColor: v => v>=80?GREEN:v>=50?GOLD:RED,
+      unit:'%', text:TEXT, text2:TEXT2, grid:GRID
+    });
+    drawLineChart('chartEvol', evolData, {
+      labelKey:'date', valueKey:'rate',
+      color:PURPLE, fill:isDark?'rgba(183,138,255,0.12)':'rgba(124,58,237,0.08)',
+      unit:'%', text:TEXT, text2:TEXT2, grid:GRID
+    });
+    // Données puissance
+    const powerData = [...participants].filter(p=>p.power_t1).sort((a,b)=>(b.power_t1||0)-(a.power_t1||0));
+    const avgPow = powerData.length ? Math.round(powerData.reduce((s,p)=>s+(p.power_t1||0),0)/powerData.length) : 0;
+    drawPowerChart('chartPower', powerData, {avgPow, text:TEXT, text2:TEXT2, grid:GRID});
+
+    // Évolution puissance totale guilde semaine par semaine
+    const powerEvolData = weeksSet.map(dateStr=>{
+      const ws = weeksHistory.filter(w=>w.archived_at&&w.archived_at.startsWith(dateStr)&&w.power_snapshot);
+      if(!ws.length) return null;
+      const total = ws.reduce((s,w)=>s+(w.power_snapshot||0),0);
+      return {date:dateStr.slice(5), total};
+    }).filter(Boolean);
+    if(powerEvolData.length>=2){
+      drawLineChartRaw('chartPowerEvol', powerEvolData, {
+        labelKey:'date', valueKey:'total',
+        color:'#4FD1E8', fill:isDark?'rgba(79,209,232,0.1)':'rgba(6,182,212,0.07)',
+        formatY: v => v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v,
+        text:TEXT, text2:TEXT2, grid:GRID
+      });
+    } else {
+      const c=document.getElementById('chartPowerEvol');
+      if(c){ const ctx=c.getContext('2d'); const W=c.offsetWidth||680; c.width=W;
+        ctx.font='13px sans-serif'; ctx.fillStyle=TEXT2; ctx.textAlign='center';
+        ctx.fillText('Données disponibles après 2 semaines archivées',W/2,c.height/2); }
+    }
+    drawDonutChart('chartDonut', [
+      {label:'Éligibles', value:eligCount, color:GREEN},
+      {label:'Non éligibles', value:nonEligCount, color:isDark?'rgba(255,255,255,0.1)':'rgba(0,0,0,0.1)'}
+    ], {text:TEXT, text2:TEXT2});
+  },50)));
+}
+
+/* ── Barres verticales groupées ── */
+function drawBarChart(id, data, {labelKey, series, text, text2, grid}){
+  const canvas = document.getElementById(id);
+  if(!canvas||!data.length) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth||canvas.parentElement.offsetWidth||340;
+  const H = canvas.height;
+  canvas.width = W;
+  const PAD = {top:16, right:12, bottom:56, left:32};
+  const gW = W - PAD.left - PAD.right;
+  const gH = H - PAD.top - PAD.bottom;
+  ctx.clearRect(0,0,W,H);
+
+  const maxVal = Math.max(...data.flatMap(d=>series.map(s=>d[s.key]||0)),1);
+  const groups = data.length;
+  const groupW = gW / groups;
+  const barW = Math.min(groupW*0.35, 18);
+  const gap = barW*0.4;
+
+  // Grilles
+  const steps = 4;
+  ctx.font = '10px sans-serif'; ctx.fillStyle = text2; ctx.textAlign='right';
+  for(let i=0;i<=steps;i++){
+    const v = Math.round(maxVal*i/steps);
+    const y = PAD.top + gH - (gH*i/steps);
+    ctx.beginPath(); ctx.strokeStyle=grid; ctx.lineWidth=1;
+    ctx.moveTo(PAD.left,y); ctx.lineTo(PAD.left+gW,y); ctx.stroke();
+    ctx.fillText(v, PAD.left-4, y+3);
+  }
+
+  // Barres
+  data.forEach((d,gi)=>{
+    const cx = PAD.left + gi*groupW + groupW/2;
+    series.forEach((s,si)=>{
+      const val = d[s.key]||0;
+      const bh = (val/maxVal)*gH;
+      const x = cx + (si - series.length/2 + 0.5)*(barW+gap) - (barW+gap)/2 + gap/2;
+      const y = PAD.top + gH - bh;
+      const r = Math.min(4, barW/2);
+      ctx.beginPath();
+      ctx.moveTo(x+r, y); ctx.lineTo(x+barW-r, y);
+      ctx.quadraticCurveTo(x+barW, y, x+barW, y+r);
+      ctx.lineTo(x+barW, y+bh); ctx.lineTo(x, y+bh);
+      ctx.lineTo(x, y+r); ctx.quadraticCurveTo(x, y, x+r, y);
+      ctx.closePath();
+      ctx.fillStyle = s.color; ctx.fill();
+    });
+    // Label
+    ctx.save(); ctx.translate(cx, PAD.top+gH+8); ctx.rotate(-Math.PI/4);
+    ctx.font='10px sans-serif'; ctx.fillStyle=text; ctx.textAlign='right';
+    ctx.fillText(d[labelKey].length>12?d[labelKey].slice(0,11)+'…':d[labelKey], 0, 0);
+    ctx.restore();
+  });
+}
+
+/* ── Barres horizontales ── */
+function drawHorizBarChart(id, data, {valueKey, labelKey, getColor, unit, text, text2, grid}){
+  const canvas = document.getElementById(id);
+  if(!canvas||!data.length) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth||canvas.parentElement.offsetWidth||340;
+  const H = canvas.height;
+  canvas.width = W;
+  const labelW = 90; const PAD = {top:8, right:36, bottom:8, left:labelW};
+  const gW = W - PAD.left - PAD.right;
+  const rowH = Math.min((H - PAD.top - PAD.bottom) / data.length, 22);
+  const barH = rowH * 0.6;
+  ctx.clearRect(0,0,W,H);
+
+  data.forEach((d,i)=>{
+    const val = d[valueKey];
+    const y = PAD.top + i*rowH + rowH/2;
+    const bw = (val/100)*gW;
+    // Label
+    ctx.font='11px sans-serif'; ctx.fillStyle=text; ctx.textAlign='right';
+    const lbl = d[labelKey].length>13?d[labelKey].slice(0,12)+'…':d[labelKey];
+    ctx.fillText(lbl, labelW-6, y+4);
+    // Fond
+    ctx.fillStyle=grid;
+    ctx.beginPath(); ctx.roundRect(PAD.left, y-barH/2, gW, barH, 3); ctx.fill();
+    // Barre
+    if(bw>0){
+      ctx.fillStyle=getColor(val);
+      ctx.beginPath(); ctx.roundRect(PAD.left, y-barH/2, bw, barH, 3); ctx.fill();
+    }
+    // Valeur
+    ctx.font='10px sans-serif'; ctx.fillStyle=text2; ctx.textAlign='left';
+    ctx.fillText(val+(unit||''), PAD.left+gW+4, y+4);
+  });
+}
+
+/* ── Courbe temporelle ── */
+function drawLineChart(id, data, {labelKey, valueKey, color, fill, unit, text, text2, grid}){
+  const canvas = document.getElementById(id);
+  if(!canvas||data.length<2) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth||canvas.parentElement.offsetWidth||340;
+  const H = canvas.height;
+  canvas.width = W;
+  const PAD = {top:16, right:16, bottom:40, left:36};
+  const gW = W-PAD.left-PAD.right, gH = H-PAD.top-PAD.bottom;
+  ctx.clearRect(0,0,W,H);
+  const vals = data.map(d=>d[valueKey]);
+  const minV = Math.max(0, Math.min(...vals)-10);
+  const maxV = Math.min(100, Math.max(...vals)+10);
+  const toX = i => PAD.left + i*(gW/(data.length-1));
+  const toY = v => PAD.top + gH - ((v-minV)/(maxV-minV))*gH;
+  // Grilles
+  [0,25,50,75,100].filter(v=>v>=minV&&v<=maxV).forEach(v=>{
+    const y=toY(v);
+    ctx.beginPath(); ctx.strokeStyle=grid; ctx.lineWidth=1;
+    ctx.moveTo(PAD.left,y); ctx.lineTo(PAD.left+gW,y); ctx.stroke();
+    ctx.font='10px sans-serif'; ctx.fillStyle=text2; ctx.textAlign='right';
+    ctx.fillText(v+'%', PAD.left-4, y+3);
+  });
+  // Fill
+  ctx.beginPath();
+  ctx.moveTo(toX(0), toY(vals[0]));
+  data.forEach((_,i)=>{ if(i>0) ctx.lineTo(toX(i), toY(vals[i])); });
+  ctx.lineTo(toX(data.length-1), PAD.top+gH);
+  ctx.lineTo(toX(0), PAD.top+gH);
+  ctx.closePath();
+  ctx.fillStyle=fill; ctx.fill();
+  // Ligne
+  ctx.beginPath(); ctx.strokeStyle=color; ctx.lineWidth=2.5; ctx.lineJoin='round';
+  data.forEach((d,i)=>{ i===0?ctx.moveTo(toX(i),toY(d[valueKey])):ctx.lineTo(toX(i),toY(d[valueKey])); });
+  ctx.stroke();
+  // Points + labels X
+  data.forEach((d,i)=>{
+    ctx.beginPath(); ctx.arc(toX(i),toY(d[valueKey]),3.5,0,Math.PI*2);
+    ctx.fillStyle=color; ctx.fill();
+    if(i%(Math.ceil(data.length/6))===0||i===data.length-1){
+      ctx.save(); ctx.translate(toX(i), PAD.top+gH+10); ctx.rotate(-Math.PI/5);
+      ctx.font='10px sans-serif'; ctx.fillStyle=text; ctx.textAlign='right';
+      ctx.fillText(d[labelKey], 0, 0); ctx.restore();
+    }
+  });
+}
+
+/* ── Barres puissance avec ligne moyenne ── */
+function drawPowerChart(id, data, {avgPow, text, text2, grid}){
+  const canvas = document.getElementById(id);
+  if(!canvas||!data.length) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth||canvas.parentElement.offsetWidth||680;
+  const H = canvas.height;
+  canvas.width = W;
+  const PAD = {top:20, right:16, bottom:58, left:60};
+  const gW = W-PAD.left-PAD.right, gH = H-PAD.top-PAD.bottom;
+  ctx.clearRect(0,0,W,H);
+
+  const maxVal = Math.max(...data.map(d=>d.power_t1||0), 1);
+  const barW = Math.min(gW/data.length*0.7, 30);
+  const groupW = gW/data.length;
+
+  // Grilles horizontales
+  const steps = 4;
+  ctx.font = '10px sans-serif';
+  for(let i=0;i<=steps;i++){
+    const v = Math.round(maxVal*i/steps);
+    const y = PAD.top + gH - (gH*i/steps);
+    ctx.beginPath(); ctx.strokeStyle=grid; ctx.lineWidth=1;
+    ctx.moveTo(PAD.left,y); ctx.lineTo(PAD.left+gW,y); ctx.stroke();
+    ctx.fillStyle=text2; ctx.textAlign='right';
+    ctx.fillText(v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v, PAD.left-4, y+3);
+  }
+
+  // Barres avec dégradé selon rang
+  data.forEach((p,i)=>{
+    const val = p.power_t1||0;
+    const bh = (val/maxVal)*gH;
+    const x = PAD.left + i*groupW + groupW/2 - barW/2;
+    const y = PAD.top + gH - bh;
+    const pct = i/Math.max(data.length-1,1); // 0=top, 1=bas
+    // Couleur : cyan→bleu→violet selon rang
+    const r = Math.round(79 + (183-79)*pct);
+    const g = Math.round(209 + (138-209)*pct);
+    const b = Math.round(232 + (255-232)*pct);
+    const barColor = `rgb(${r},${g},${b})`;
+    const radius = Math.min(4, barW/2);
+    ctx.beginPath();
+    ctx.moveTo(x+radius, y); ctx.lineTo(x+barW-radius, y);
+    ctx.quadraticCurveTo(x+barW, y, x+barW, y+radius);
+    ctx.lineTo(x+barW, y+bh); ctx.lineTo(x, y+bh);
+    ctx.lineTo(x, y+radius); ctx.quadraticCurveTo(x, y, x+radius, y);
+    ctx.closePath();
+    ctx.fillStyle = barColor; ctx.fill();
+
+    // Label nom
+    ctx.save(); ctx.translate(x+barW/2, PAD.top+gH+8); ctx.rotate(-Math.PI/4);
+    ctx.font='10px sans-serif'; ctx.fillStyle=text; ctx.textAlign='right';
+    const lbl = p.name.length>10?p.name.slice(0,9)+'…':p.name;
+    ctx.fillText(lbl, 0, 0); ctx.restore();
+  });
+
+  // Ligne de moyenne
+  if(avgPow>0){
+    const avgY = PAD.top + gH - (avgPow/maxVal)*gH;
+    ctx.beginPath(); ctx.strokeStyle='rgba(124,159,255,0.7)'; ctx.lineWidth=1.5;
+    ctx.setLineDash([6,4]);
+    ctx.moveTo(PAD.left, avgY); ctx.lineTo(PAD.left+gW, avgY); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font='bold 10px sans-serif'; ctx.fillStyle='rgba(124,159,255,0.9)'; ctx.textAlign='left';
+    const avgLabel = avgPow>=1e6?(avgPow/1e6).toFixed(2)+'M':avgPow>=1e3?(avgPow/1e3).toFixed(0)+'k':avgPow;
+    ctx.fillText('moy. '+avgLabel, PAD.left+4, avgY-5);
+  }
+}
+
+/* ── Courbe générique avec formatY ── */
+function drawLineChartRaw(id, data, {labelKey, valueKey, color, fill, formatY, text, text2, grid}){
+  const canvas = document.getElementById(id);
+  if(!canvas||data.length<2) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth||canvas.parentElement.offsetWidth||680;
+  const H = canvas.height;
+  canvas.width = W;
+  const PAD = {top:16, right:16, bottom:40, left:52};
+  const gW = W-PAD.left-PAD.right, gH = H-PAD.top-PAD.bottom;
+  ctx.clearRect(0,0,W,H);
+  const vals = data.map(d=>d[valueKey]);
+  const minV = Math.min(...vals)*0.95;
+  const maxV = Math.max(...vals)*1.05;
+  const toX = i => PAD.left + i*(gW/(data.length-1));
+  const toY = v => PAD.top + gH - ((v-minV)/(maxV-minV||1))*gH;
+  // Grilles
+  for(let i=0;i<=4;i++){
+    const v = minV+(maxV-minV)*i/4;
+    const y = toY(v);
+    ctx.beginPath(); ctx.strokeStyle=grid; ctx.lineWidth=1;
+    ctx.moveTo(PAD.left,y); ctx.lineTo(PAD.left+gW,y); ctx.stroke();
+    ctx.font='10px sans-serif'; ctx.fillStyle=text2; ctx.textAlign='right';
+    ctx.fillText(formatY?formatY(Math.round(v)):Math.round(v), PAD.left-4, y+3);
+  }
+  // Fill
+  ctx.beginPath();
+  ctx.moveTo(toX(0), toY(vals[0]));
+  data.forEach((_,i)=>{ if(i>0) ctx.lineTo(toX(i), toY(vals[i])); });
+  ctx.lineTo(toX(data.length-1), PAD.top+gH);
+  ctx.lineTo(toX(0), PAD.top+gH);
+  ctx.closePath(); ctx.fillStyle=fill; ctx.fill();
+  // Ligne
+  ctx.beginPath(); ctx.strokeStyle=color; ctx.lineWidth=2.5; ctx.lineJoin='round';
+  data.forEach((d,i)=>{ i===0?ctx.moveTo(toX(i),toY(d[valueKey])):ctx.lineTo(toX(i),toY(d[valueKey])); });
+  ctx.stroke();
+  // Points + labels X
+  data.forEach((d,i)=>{
+    ctx.beginPath(); ctx.arc(toX(i),toY(d[valueKey]),3.5,0,Math.PI*2);
+    ctx.fillStyle=color; ctx.fill();
+    if(i%(Math.ceil(data.length/7))===0||i===data.length-1){
+      ctx.save(); ctx.translate(toX(i),PAD.top+gH+10); ctx.rotate(-Math.PI/5);
+      ctx.font='10px sans-serif'; ctx.fillStyle=text; ctx.textAlign='right';
+      ctx.fillText(d[labelKey], 0, 0); ctx.restore();
+    }
+  });
+}
+
+/* ── Donut ── */
+function drawDonutChart(id, data, {text}){
+  const canvas = document.getElementById(id);
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth||canvas.parentElement.offsetWidth||340;
+  const H = canvas.height;
+  canvas.width = W;
+  ctx.clearRect(0,0,W,H);
+  const total = data.reduce((s,d)=>s+d.value,0);
+  if(!total) return;
+  const cx=W/2, cy=H/2-10, R=Math.min(cx,cy)*0.72, r=R*0.58;
+  let angle = -Math.PI/2;
+  data.forEach(d=>{
+    const sweep = (d.value/total)*Math.PI*2;
+    ctx.beginPath(); ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,R,angle,angle+sweep);
+    ctx.closePath(); ctx.fillStyle=d.color; ctx.fill();
+    angle+=sweep;
+  });
+  // Trou
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
+  ctx.fillStyle=getComputedStyle(document.body).getPropertyValue('--bg')||'#0f111a';
+  ctx.fill();
+  // Texte centre
+  ctx.font=`700 ${Math.round(R*0.38)}px sans-serif`; ctx.fillStyle=text; ctx.textAlign='center';
+  ctx.fillText(total, cx, cy+5);
+  ctx.font=`${Math.round(R*0.2)}px sans-serif`; ctx.fillStyle=text;
+  ctx.fillText('joueurs', cx, cy+R*0.28);
+  // Légende
+  const legY = H - 28;
+  const legTotalW = data.reduce((s,d,i)=>s + ctx.measureText(d.label+' '+d.value).width + 28 + (i?16:0),0);
+  let lx = cx - legTotalW/2;
+  data.forEach(d=>{
+    ctx.beginPath(); ctx.arc(lx+6,legY,6,0,Math.PI*2); ctx.fillStyle=d.color; ctx.fill();
+    ctx.font='12px sans-serif'; ctx.fillStyle=text; ctx.textAlign='left';
+    ctx.fillText(d.label+' '+d.value, lx+16, legY+4);
+    lx += ctx.measureText(d.label+' '+d.value).width + 36;
+  });
+}
+
+
+
+/* ══════════════════════════════════════════════════════
+   FIABILITÉ — Score combiné par joueur
+   Formule : 40% taux coffres + 30% présence tirages + 30% absence sanctions
+   ══════════════════════════════════════════════════════ */
+function computeReliabilityScore(p){
+  const weeks = getPlayerWeeks(p);
+  const coffresRate = weeks.length ? weeks.filter(w=>w.validated).length/weeks.length : null;
+  const totalDraws = (p.driver_count||0)+(p.vip_count||0);
+  const weeksCount = weeks.length||1;
+  const drawRate = Math.min(1, totalDraws/(weeksCount*2)); // idéal = 2 tirages/semaine
+  const sanctionMalus = Math.min(1, (p.sanction_malus||0)/5); // normalisé sur 5
+  if(coffresRate===null) return null;
+  return Math.round((coffresRate*0.4 + drawRate*0.3 + (1-sanctionMalus)*0.3)*100);
+}
+
+function renderStatsReliability(){
+  const el = document.getElementById('statsReliabilityContainer');
+  if(!el) return;
+  const isDark = !document.body.classList.contains('light');
+  const TEXT  = isDark?'rgba(255,255,255,0.8)':'rgba(0,0,0,0.75)';
+  const TEXT2 = isDark?'rgba(255,255,255,0.35)':'rgba(0,0,0,0.3)';
+  const GRID  = isDark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.07)';
+
+  const scored = participants.map(p=>({...p,score:computeReliabilityScore(p)}))
+    .filter(p=>p.score!==null).sort((a,b)=>b.score-a.score);
+
+  const getColor = s => s>=80?'#4FD1A5':s>=60?'#FFB84D':'#FF6B6B';
+  const getTrend = p => {
+    const weeks = getPlayerWeeks(p);
+    if(weeks.length<2) return null;
+    const half = Math.ceil(weeks.length/2);
+    const r1 = weeks.slice(0,half).filter(w=>w.validated).length/half;
+    const r2 = weeks.slice(half).filter(w=>w.validated).length/(weeks.length-half);
+    const diff = r2-r1;
+    if(diff>0.1) return {icon:'↑',color:'#4FD1A5',label:'En progression'};
+    if(diff<-0.1) return {icon:'↓',color:'#FF6B6B',label:'En régression'};
+    return {icon:'→',color:'#FFB84D',label:'Stable'};
+  };
+
+  // Résumé global
+  const avg = scored.length ? Math.round(scored.reduce((s,p)=>s+p.score,0)/scored.length) : 0;
+  const top = scored.filter(p=>p.score>=80).length;
+  const mid = scored.filter(p=>p.score>=60&&p.score<80).length;
+  const low = scored.filter(p=>p.score<60).length;
+
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin:4px 0 18px">
+      ${[
+        {val:avg+'%',lbl:'Score moyen guilde',color:'var(--blue)'},
+        {val:top,lbl:'🟢 Fiables (≥80)',color:'#4FD1A5'},
+        {val:mid,lbl:'🟡 Moyens (60-79)',color:'#FFB84D'},
+        {val:low,lbl:'🔴 À risque (<60)',color:'#FF6B6B'},
+      ].map(({val,lbl,color})=>`
+        <div class="stats-global-card">
+          <div class="stats-global-val" style="color:${color}">${val}</div>
+          <div class="stats-global-lbl">${lbl}</div>
+        </div>`).join('')}
+    </div>
+    <div style="margin-bottom:12px;font-size:11px;color:var(--text3)">
+      Score = 40% taux coffres + 30% présence tirages + 30% absence sanctions
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${scored.map((p,i)=>{
+        const trend = getTrend(p);
+        const weeks = getPlayerWeeks(p);
+        const coffresRate = weeks.length?Math.round(weeks.filter(w=>w.validated).length/weeks.length*100):0;
+        const totalDraws = (p.driver_count||0)+(p.vip_count||0);
+        return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);transition:all .2s" onmouseover="this.style.borderColor='var(--border2)'" onmouseout="this.style.borderColor='var(--border)'">
+          <span style="width:24px;text-align:center;font-size:12px;font-weight:800;color:var(--text3);font-family:var(--font-mono)">${i+1}</span>
+          <span style="flex:1;font-weight:700;font-size:13px;color:var(--text)">${p.name}</span>
+          <span style="font-size:11px;color:var(--text3)">📦 ${coffresRate}%</span>
+          <span style="font-size:11px;color:var(--text3)">🎟️ ${totalDraws} tirages</span>
+          ${p.sanction_malus?`<span style="font-size:11px;color:#FF6B6B">⚡ -${p.sanction_malus}</span>`:''}
+          ${trend?`<span title="${trend.label}" style="font-size:15px;color:${trend.color};font-weight:800">${trend.icon}</span>`:''}
+          <div style="position:relative;width:120px;height:8px;background:var(--border);border-radius:99px;overflow:hidden">
+            <div style="position:absolute;left:0;top:0;height:100%;width:${p.score}%;background:${getColor(p.score)};border-radius:99px;transition:width .4s"></div>
+          </div>
+          <span style="width:36px;text-align:right;font-size:13px;font-weight:800;font-family:var(--font-mono);color:${getColor(p.score)}">${p.score}%</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+/* ══════════════════════════════════════════════════════
+   SANCTIONS — Classement & historique
+   ══════════════════════════════════════════════════════ */
+function renderStatsSanctions(){
+  const el = document.getElementById('statsSanctionsContainer');
+  if(!el) return;
+
+  const DAYS_FR = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
+
+  // Agrégation par joueur
+  const byPlayer = {};
+  sanctionsData.forEach(s=>{
+    if(!byPlayer[s.participant_name]) byPlayer[s.participant_name]={name:s.participant_name,total:0,count:0,events:[]};
+    byPlayer[s.participant_name].total += s.tickets_lost||0;
+    byPlayer[s.participant_name].count++;
+    byPlayer[s.participant_name].events.push(s);
+  });
+  const ranked = Object.values(byPlayer).sort((a,b)=>b.total-a.total);
+
+  // Répartition par rôle (driver/vip) via historique
+  const replacements = history.filter(h=>h.is_present_draw===false && !h.is_manual && !h.is_weekly);
+
+  const totalTicketsLost = ranked.reduce((s,p)=>s+p.total,0);
+  const mostSanctioned = ranked[0];
+  const cleanPlayers = participants.filter(p=>!byPlayer[p.name]).length;
+
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin:4px 0 18px">
+      ${[
+        {val:sanctionsData.length,lbl:'Total sanctions',color:'#FF6B6B'},
+        {val:totalTicketsLost+'🎟️',lbl:'Tickets perdus',color:'#FFB84D'},
+        {val:cleanPlayers,lbl:'✅ Sans sanction',color:'#4FD1A5'},
+        {val:mostSanctioned?mostSanctioned.name:'—',lbl:'Plus sanctionné',color:'var(--text)'},
+      ].map(({val,lbl,color})=>`
+        <div class="stats-global-card">
+          <div class="stats-global-val" style="color:${color};font-size:${String(val).length>8?'16px':'26px'}">${val}</div>
+          <div class="stats-global-lbl">${lbl}</div>
+        </div>`).join('')}
+    </div>
+
+    ${ranked.length===0?'<div style="padding:32px;text-align:center;color:var(--text3);font-size:13px">🎉 Aucune sanction enregistrée !</div>':''}
+
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${ranked.map((p,i)=>{
+        const lastDate = p.events.length?new Date(p.events.sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))[0].created_at).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}):'';
+        const maxTotal = ranked[0]?.total||1;
+        return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:12px 14px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:${p.events.length?'10px':'0'}">
+            <span style="width:24px;text-align:center;font-size:12px;font-weight:800;color:var(--text3);font-family:var(--font-mono)">${i+1}</span>
+            <span style="flex:1;font-weight:700;font-size:13px;color:var(--text)">${p.name}</span>
+            <span style="font-size:11px;color:var(--text3)">${p.count} absence${p.count>1?'s':''}</span>
+            <span style="font-size:11px;color:var(--text3)">dernière : ${lastDate}</span>
+            <span style="font-size:13px;font-weight:800;color:#FF6B6B;font-family:var(--font-mono)">-${p.total}🎟️</span>
+          </div>
+          <div style="height:6px;background:var(--border);border-radius:99px;overflow:hidden">
+            <div style="height:100%;width:${Math.round(p.total/maxTotal*100)}%;background:linear-gradient(90deg,#FF6B6B,#FFB84D);border-radius:99px"></div>
+          </div>
+          <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px">
+            ${p.events.slice(0,6).map(s=>{
+              const d=new Date(s.created_at).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'});
+              return `<span style="font-size:10px;padding:2px 8px;background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.2);border-radius:99px;color:#FF6B6B">-${s.tickets_lost}🎟️ ${s.reason?s.reason.slice(0,20):'Absence'} · ${d}</span>`;
+            }).join('')}
+            ${p.events.length>6?`<span style="font-size:10px;color:var(--text3)">+${p.events.length-6} autres</span>`:''}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+/* ══════════════════════════════════════════════════════
+   JOURS — Analyse par jour de la semaine
+   ══════════════════════════════════════════════════════ */
+function renderStatsDays(){
+  const el = document.getElementById('statsDaysContainer');
+  if(!el) return;
+  const isDark = !document.body.classList.contains('light');
+  const TEXT  = isDark?'rgba(255,255,255,0.8)':'rgba(0,0,0,0.75)';
+  const TEXT2 = isDark?'rgba(255,255,255,0.35)':'rgba(0,0,0,0.3)';
+  const GRID  = isDark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.07)';
+
+  const DAYS = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
+  const DAYS_SHORT = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+
+  // Compter les tirages hebdomadaires par jour
+  const weeklyByDay = history.filter(h=>h.is_weekly && h.week_day);
+  const countByDay = {};
+  const replacByDay = {};
+  DAYS.forEach(d=>{ countByDay[d]=0; replacByDay[d]=0; });
+  weeklyByDay.forEach(h=>{ if(countByDay[h.week_day]!==undefined) countByDay[h.week_day]++; });
+
+  // Sanctions par jour de la semaine
+  const sanctByDay = {};
+  DAYS.forEach(d=>sanctByDay[d]=0);
+  sanctionsData.forEach(s=>{
+    const d = new Date(s.created_at);
+    const dayName = DAYS[d.getDay()===0?6:d.getDay()-1];
+    if(sanctByDay[dayName]!==undefined) sanctByDay[dayName]++;
+  });
+
+  const maxCount = Math.max(...DAYS.map(d=>countByDay[d]),1);
+  const maxSanct = Math.max(...DAYS.map(d=>sanctByDay[d]),1);
+
+  // Trouver le jour le plus actif et le plus à risque
+  const mostActiveDay = DAYS.reduce((a,b)=>countByDay[a]>=countByDay[b]?a:b);
+  const mostRiskyDay = DAYS.reduce((a,b)=>sanctByDay[a]>=sanctByDay[b]?a:b);
+  const totalWeekly = weeklyByDay.length;
+
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin:4px 0 18px">
+      ${[
+        {val:totalWeekly,lbl:'Tirages hebdo total',color:'var(--blue)'},
+        {val:mostActiveDay,lbl:'Jour le + actif',color:'#4FD1A5'},
+        {val:mostRiskyDay,lbl:'Plus de sanctions',color:'#FF6B6B'},
+        {val:sanctionsData.length?sanctByDay[mostRiskyDay]:'—',lbl:'Sanctions ce jour',color:'#FFB84D'},
+      ].map(({val,lbl,color})=>`
+        <div class="stats-global-card">
+          <div class="stats-global-val" style="color:${color};font-size:${String(val).length>8?'14px':'26px'}">${val}</div>
+          <div class="stats-global-lbl">${lbl}</div>
+        </div>`).join('')}
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div class="chart-card">
+        <div class="chart-title">🎟️ Tirages par jour de la semaine</div>
+        <canvas id="chartDayDraws" height="200"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">⚡ Sanctions par jour de la semaine</div>
+        <canvas id="chartDaySanct" height="200"></canvas>
+      </div>
+    </div>
+
+    <div class="chart-card" style="margin-bottom:16px">
+      <div class="chart-title">📊 Récapitulatif par jour</div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:4px">
+        ${DAYS.map((day,i)=>{
+          const draws = countByDay[day];
+          const sanct = sanctByDay[day];
+          const pct = Math.round(draws/Math.max(totalWeekly,1)*100);
+          return `<div style="text-align:center;padding:12px 4px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg)">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:8px">${DAYS_SHORT[i]}</div>
+            <div style="font-size:20px;font-weight:800;color:var(--text);font-family:var(--font-mono)">${draws}</div>
+            <div style="font-size:10px;color:var(--text3);margin-bottom:6px">tirages</div>
+            ${sanct?`<div style="font-size:12px;color:#FF6B6B;font-weight:700">⚡${sanct}</div>`:'<div style="font-size:12px;color:#4FD1A5">✓</div>'}
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+
+  // Dessiner les graphiques canvas
+  requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>{
+    drawDayBarChart('chartDayDraws', DAYS_SHORT, DAYS.map(d=>countByDay[d]), '#7C9FFF', TEXT, TEXT2, GRID);
+    drawDayBarChart('chartDaySanct', DAYS_SHORT, DAYS.map(d=>sanctByDay[d]), '#FF6B6B', TEXT, TEXT2, GRID);
+  },50)));
+}
+
+function drawDayBarChart(id, labels, values, color, text, text2, grid){
+  const canvas = document.getElementById(id);
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth||canvas.parentElement.offsetWidth||300;
+  const H = canvas.height;
+  canvas.width = W;
+  const PAD = {top:14,right:12,bottom:36,left:28};
+  const gW=W-PAD.left-PAD.right, gH=H-PAD.top-PAD.bottom;
+  ctx.clearRect(0,0,W,H);
+  const maxV = Math.max(...values,1);
+  const barW = gW/labels.length*0.6;
+  const groupW = gW/labels.length;
+  for(let i=0;i<=4;i++){
+    const y=PAD.top+gH-gH*i/4;
+    ctx.beginPath(); ctx.strokeStyle=grid; ctx.lineWidth=1;
+    ctx.moveTo(PAD.left,y); ctx.lineTo(PAD.left+gW,y); ctx.stroke();
+    ctx.font='10px sans-serif'; ctx.fillStyle=text2; ctx.textAlign='right';
+    ctx.fillText(Math.round(maxV*i/4), PAD.left-3, y+3);
+  }
+  values.forEach((v,i)=>{
+    const bh=(v/maxV)*gH;
+    const x=PAD.left+i*groupW+groupW/2-barW/2;
+    const y=PAD.top+gH-bh;
+    const r=Math.min(4,barW/2);
+    ctx.beginPath();
+    if(bh>0){
+      ctx.moveTo(x+r,y); ctx.lineTo(x+barW-r,y);
+      ctx.quadraticCurveTo(x+barW,y,x+barW,y+r);
+      ctx.lineTo(x+barW,y+bh); ctx.lineTo(x,y+bh);
+      ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+      ctx.closePath();
+      ctx.fillStyle=color; ctx.fill();
+    }
+    ctx.font='11px sans-serif'; ctx.fillStyle=text; ctx.textAlign='center';
+    ctx.fillText(labels[i], x+barW/2, PAD.top+gH+14);
+    if(v>0){ ctx.font='bold 10px sans-serif'; ctx.fillStyle=text; ctx.fillText(v, x+barW/2, y-4); }
+  });
 }
 
 function onSearch(){searchFilter=document.getElementById('searchInput').value.toLowerCase();document.getElementById('searchClear').classList.toggle('show',searchFilter.length>0);render();}
