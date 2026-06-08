@@ -1701,6 +1701,7 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
         <div class="tools-bar">
           <button class="btn" onclick="openModal('importModal')">⬆ Importer</button>
           <button class="btn" onclick="loadAll()">↻ Actualiser</button>
+          <button class="btn" onclick="openRepairModal()" title="Réparer l'historique d'un joueur renommé" style="display:none" id="btnRepairHistory">🔧 Réparer historique</button>
           <button class="btn btn-gold" id="archiveWeekParticipantsBtn" onclick="archiveWeekFromParticipants()" style="display:none">📅 Archiver la semaine</button>
         </div>
       </div>
@@ -2647,19 +2648,40 @@ function renderReplaceList(){
 
 async function confirmReplace(newPlayerName){
   if(!sanctionDrawId||!sanctionRole) return;
-  const update = sanctionRole==='driver' ? {driver:newPlayerName} : {vip:newPlayerName};
-  await sb.from('weekly_draws').update(update).eq('id',sanctionDrawId);
+  const field = sanctionRole==='driver' ? 'driver' : 'vip';
+  const update = {[field]: newPlayerName};
+
+  // Récupérer le tirage concerné pour retrouver l'entrée dans historique
+  const draw = weeklyDrawsData.find(d=>d.id===sanctionDrawId);
+
+  // Mettre à jour le planning de la semaine
+  await sb.from('weekly_draws').update(update).eq('id', sanctionDrawId);
+
+  // Mettre à jour l'historique des tirages : trouver l'entrée la plus récente pour ce joueur/rôle/jour
+  if(draw && draw.week_day){
+    const {data: histEntries} = await sb.from('historique')
+      .select('id')
+      .eq(field, sanctionPlayerName)
+      .eq('week_day', draw.week_day)
+      .eq('is_weekly', true)
+      .order('created_at', {ascending: false})
+      .limit(1);
+    if(histEntries && histEntries.length){
+      await sb.from('historique').update(update).eq('id', histEntries[0].id);
+    }
+  }
+
   // Mettre à jour le compteur du remplaçant
   const p = participants.find(x=>x.name===newPlayerName);
   if(p){
-    const field = sanctionRole==='driver' ? 'driver_count' : 'vip_count';
-    await sb.from('participants').update({[field]:(p[field]||0)+1}).eq('id',p.id);
-    p[field]=(p[field]||0)+1;
+    const countField = sanctionRole==='driver' ? 'driver_count' : 'vip_count';
+    await sb.from('participants').update({[countField]:(p[countField]||0)+1}).eq('id',p.id);
+    p[countField]=(p[countField]||0)+1;
   }
   closeAbsentModal();
   await loadWeeklyDraws();
   await loadSanctions();
-  toast(`${newPlayerName} remplace ${sanctionPlayerName} !`);
+  toast(`${newPlayerName} remplace ${sanctionPlayerName} ✅`);
 }
 // ────────────────────────────────────────────────────────────────────────────
 function isAdmin(){return currentUser?.role==='admin';}
@@ -2757,6 +2779,7 @@ function showApp(){
   if(drawBtn)drawBtn.style.display=isAdminOrStaff()?'flex':'none';
   const archiveBtn=document.getElementById('archiveWeekParticipantsBtn');
   if(archiveBtn)archiveBtn.style.display=isAdminOrStaff()?'inline-flex':'none';
+  const repairBtn=document.getElementById('btnRepairHistory');if(repairBtn)repairBtn.style.display=isAdmin()?'':'none';
   if(isAdmin())loadUsers();
   loadPermConfig();
   loadAll();
@@ -3858,63 +3881,204 @@ function renderStats(){
 /* ══════════════════════════════════════════════════════
    FIABILITÉ — Score combiné par joueur
    ══════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════
+   FIABILITÉ v2 — Calcul affiné
+   ══════════════════════════════════════════════════════
+
+   Formule (4 composantes) :
+   ┌─ Coffres pondérés (40%) ──────────────────────────┐
+   │  Semaines récentes comptent 2x (décroissance expo)│
+   │  → mesure la régularité ACTUELLE                  │
+   ├─ Présence relative (25%) ─────────────────────────┤
+   │  Tirages du joueur vs médiane de la guilde        │
+   │  → évite de pénaliser les nouveaux                │
+   ├─ Sanctions temporelles (20%) ─────────────────────┤
+   │  Chaque sanction perd du poids avec le temps      │
+   │  (demi-vie = 4 semaines)                          │
+   ├─ Tendance (15%) ──────────────────────────────────┤
+   │  Comparaison 2 dernières semaines vs 2 précédentes│
+   │  → bonus si progression, malus si régression      │
+   └───────────────────────────────────────────────────┘
+   Joueurs < 2 semaines : score null = "Données insuffisantes"
+   ══════════════════════════════════════════════════════ */
+
 function computeReliabilityScore(p){
-  const weeks=getPlayerWeeks(p);
-  const coffresRate=weeks.length?weeks.filter(w=>w.validated).length/weeks.length:null;
-  const totalDraws=(p.driver_count||0)+(p.vip_count||0);
-  const weeksCount=weeks.length||1;
-  const drawRate=Math.min(1,totalDraws/(weeksCount*2));
-  const sanctionMalus=Math.min(1,(p.sanction_malus||0)/5);
-  if(coffresRate===null)return null;
-  return Math.round((coffresRate*0.4+drawRate*0.3+(1-sanctionMalus)*0.3)*100);
+  const weeks = getPlayerWeeks(p);
+  if(weeks.length < 2) return null; // données insuffisantes
+
+  const now = Date.now();
+
+  // ── 1. Coffres pondérés (40%) ─────────────────────────
+  // Poids de chaque semaine : exp(-0.15 * rang_depuis_fin)
+  // La semaine la plus récente a le poids maximal (1.0)
+  let weightedValid = 0, weightedTotal = 0;
+  weeks.forEach((w, i) => {
+    const rank = weeks.length - 1 - i; // 0 = plus récente
+    const weight = Math.exp(-0.15 * rank);
+    weightedTotal += weight;
+    if(w.validated) weightedValid += weight;
+  });
+  const coffresScore = weightedTotal > 0 ? weightedValid / weightedTotal : 0;
+
+  // ── 2. Présence relative (25%) ────────────────────────
+  // Compare tirages du joueur à la médiane de la guilde
+  const playerDraws = (p.driver_count||0) + (p.vip_count||0);
+  const allDraws = participants.map(x => (x.driver_count||0) + (x.vip_count||0)).sort((a,b)=>a-b);
+  const median = allDraws[Math.floor(allDraws.length/2)] || 1;
+  // Score = min(1, tirages / médiane) → un joueur à la médiane = 1.0
+  const drawScore = Math.min(1, playerDraws / Math.max(median, 1));
+
+  // ── 3. Sanctions temporelles (20%) ────────────────────
+  // Demi-vie = 4 semaines (28 jours) → sanction récente = plein impact
+  const playerSanctions = sanctionsData.filter(s => s.participant_name === p.name);
+  let sanctionPenalty = 0;
+  const HALF_LIFE_MS = 28 * 24 * 3600 * 1000;
+  playerSanctions.forEach(s => {
+    const age = now - new Date(s.created_at).getTime();
+    const decay = Math.exp(-Math.LN2 * age / HALF_LIFE_MS); // demi-vie 4 semaines
+    sanctionPenalty += (s.tickets_lost||1) * decay;
+  });
+  // Normaliser : 5 tickets récents = pénalité max
+  const sanctionScore = Math.max(0, 1 - Math.min(1, sanctionPenalty / 5));
+
+  // ── 4. Tendance (15%) ─────────────────────────────────
+  // Compare taux de coffres : 2 dernières semaines vs 2 précédentes
+  let trendScore = 0.5; // neutre par défaut
+  if(weeks.length >= 4){
+    const recent = weeks.slice(-2);
+    const before = weeks.slice(-4, -2);
+    const rateRecent = recent.filter(w=>w.validated).length / recent.length;
+    const rateBefore = before.filter(w=>w.validated).length / before.length;
+    const diff = rateRecent - rateBefore;
+    // diff entre -1 et +1 → score entre 0 et 1, centré à 0.5
+    trendScore = Math.max(0, Math.min(1, 0.5 + diff * 0.75));
+  } else if(weeks.length >= 2){
+    // Seulement 2-3 semaines : comparaison simple dernière vs moyenne
+    const lastWeek = weeks[weeks.length-1];
+    const prevRate = weeks.slice(0,-1).filter(w=>w.validated).length / (weeks.length-1);
+    const lastRate = lastWeek.validated ? 1 : 0;
+    trendScore = Math.max(0, Math.min(1, 0.5 + (lastRate - prevRate) * 0.75));
+  }
+
+  // ── Score final ───────────────────────────────────────
+  const raw = coffresScore*0.40 + drawScore*0.25 + sanctionScore*0.20 + trendScore*0.15;
+  return Math.round(raw * 100);
+}
+
+// Détail lisible pour l'info-bulle
+function computeReliabilityDetail(p){
+  const weeks = getPlayerWeeks(p);
+  if(weeks.length < 2) return null;
+  const now = Date.now();
+
+  let wValid=0, wTotal=0;
+  weeks.forEach((w,i)=>{
+    const weight=Math.exp(-0.15*(weeks.length-1-i));
+    wTotal+=weight; if(w.validated)wValid+=weight;
+  });
+  const coffres = wTotal>0?wValid/wTotal:0;
+
+  const playerDraws=(p.driver_count||0)+(p.vip_count||0);
+  const allDraws=participants.map(x=>(x.driver_count||0)+(x.vip_count||0)).sort((a,b)=>a-b);
+  const median=allDraws[Math.floor(allDraws.length/2)]||1;
+  const draws=Math.min(1,playerDraws/Math.max(median,1));
+
+  const ps=sanctionsData.filter(s=>s.participant_name===p.name);
+  let pen=0;
+  const HL=28*24*3600*1000;
+  ps.forEach(s=>{const age=now-new Date(s.created_at).getTime();pen+=(s.tickets_lost||1)*Math.exp(-Math.LN2*age/HL);});
+  const sanction=Math.max(0,1-Math.min(1,pen/5));
+
+  let trend=0.5;
+  const label=weeks.length>=4?((()=>{
+    const r=weeks.slice(-2).filter(w=>w.validated).length/2;
+    const b=weeks.slice(-4,-2).filter(w=>w.validated).length/2;
+    const d=r-b;
+    trend=Math.max(0,Math.min(1,0.5+d*0.75));
+    return d>0.1?'↑ En progression':d<-0.1?'↓ En régression':'→ Stable';
+  })()):'→ Insuffisant';
+
+  return {
+    coffres:Math.round(coffres*100),
+    draws:Math.round(draws*100),
+    sanction:Math.round(sanction*100),
+    trend:Math.round(trend*100),
+    trendLabel:label,
+    weeks:weeks.length
+  };
 }
 
 function renderStatsReliability(){
   const el=document.getElementById('statsReliabilityContainer');
   if(!el)return;
-  const scored=participants.map(p=>({...p,score:computeReliabilityScore(p)}))
-    .filter(p=>p.score!==null).sort((a,b)=>b.score-a.score);
-  const getColor=s=>s>=80?'#4FD1A5':s>=60?'#FFB84D':'#FF6B6B';
-  const getTrend=p=>{
-    const weeks=getPlayerWeeks(p);
-    if(weeks.length<2)return null;
-    const half=Math.ceil(weeks.length/2);
-    const r1=weeks.slice(0,half).filter(w=>w.validated).length/half;
-    const r2=weeks.slice(half).filter(w=>w.validated).length/(weeks.length-half);
-    const diff=r2-r1;
-    if(diff>0.1)return{icon:'↑',color:'#4FD1A5',label:'En progression'};
-    if(diff<-0.1)return{icon:'↓',color:'#FF6B6B',label:'En régression'};
-    return{icon:'→',color:'#FFB84D',label:'Stable'};
-  };
-  const avg=scored.length?Math.round(scored.reduce((s,p)=>s+p.score,0)/scored.length):0;
-  const top=scored.filter(p=>p.score>=80).length;
-  const mid=scored.filter(p=>p.score>=60&&p.score<80).length;
-  const low=scored.filter(p=>p.score<60).length;
+
+  // Séparer joueurs scorés et insuffisants
+  const allScored = participants.map(p=>({...p, score:computeReliabilityScore(p), detail:computeReliabilityDetail(p)}));
+  const scored = allScored.filter(p=>p.score!==null).sort((a,b)=>b.score-a.score);
+  const insufficient = allScored.filter(p=>p.score===null);
+
+  const getColor = s => s>=80?'#4FD1A5':s>=60?'#FFB84D':'#FF6B6B';
+  const getBg    = s => s>=80?'rgba(79,209,165,0.08)':s>=60?'rgba(255,184,77,0.08)':'rgba(255,107,107,0.08)';
+  const avg = scored.length?Math.round(scored.reduce((s,p)=>s+p.score,0)/scored.length):0;
+  const top = scored.filter(p=>p.score>=80).length;
+  const mid = scored.filter(p=>p.score>=60&&p.score<80).length;
+  const low = scored.filter(p=>p.score<60).length;
+
   el.innerHTML=`
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin:4px 0 18px">
       ${[{val:avg+'%',lbl:'Score moyen guilde',color:'var(--blue)'},{val:top,lbl:'🟢 Fiables (≥80)',color:'#4FD1A5'},{val:mid,lbl:'🟡 Moyens (60-79)',color:'#FFB84D'},{val:low,lbl:'🔴 À risque (<60)',color:'#FF6B6B'}]
         .map(({val,lbl,color})=>`<div class="stats-global-card"><div class="stats-global-val" style="color:${color}">${val}</div><div class="stats-global-lbl">${lbl}</div></div>`).join('')}
     </div>
-    <div style="margin-bottom:12px;font-size:11px;color:var(--text3)">Score = 40% taux coffres + 30% présence tirages + 30% absence sanctions</div>
+
+    <details style="margin-bottom:12px;font-size:11px;color:var(--text3);cursor:pointer">
+      <summary style="font-weight:700;letter-spacing:.03em;user-select:none">ℹ️ Comment est calculé ce score ?</summary>
+      <div style="margin-top:8px;padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);line-height:1.7">
+        <b style="color:var(--text)">40% Coffres pondérés</b> — Les semaines récentes comptent davantage (décroissance exponentielle). Un joueur qui fait ses coffres <i>maintenant</i> est mieux noté qu'un qui était régulier mais ne l'est plus.<br>
+        <b style="color:var(--text)">25% Présence relative</b> — Tirages comparés à la médiane de la guilde. Un nouveau joueur n'est pas pénalisé d'office pour avoir peu de tirages.<br>
+        <b style="color:var(--text)">20% Sanctions temporelles</b> — Chaque sanction perd de l'impact avec le temps (demi-vie 4 semaines). Une ancienne absence pèse moins qu'une récente.<br>
+        <b style="color:var(--text)">15% Tendance</b> — Comparaison des 2 dernières semaines vs les 2 précédentes. Bonus si le joueur progresse, malus s'il régresse.
+      </div>
+    </details>
+
     <div style="display:flex;flex-direction:column;gap:6px">
       ${scored.map((p,i)=>{
-        const trend=getTrend(p);
+        const d=p.detail;
+        const trendIcon=d.trendLabel?d.trendLabel.slice(0,1):'→';
+        const trendColor=trendIcon==='↑'?'#4FD1A5':trendIcon==='↓'?'#FF6B6B':'#FFB84D';
         const weeks=getPlayerWeeks(p);
-        const coffresRate=weeks.length?Math.round(weeks.filter(w=>w.validated).length/weeks.length*100):0;
-        const totalDraws=(p.driver_count||0)+(p.vip_count||0);
-        return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);transition:border-color .2s" onmouseover="this.style.borderColor='var(--border2)'" onmouseout="this.style.borderColor='var(--border)'">
-          <span style="width:24px;text-align:center;font-size:12px;font-weight:800;color:var(--text3);font-family:var(--font-mono)">${i+1}</span>
-          <span style="flex:1;font-weight:700;font-size:13px;color:var(--text)">${p.name}</span>
-          <span style="font-size:11px;color:var(--text3)">📦 ${coffresRate}%</span>
-          <span style="font-size:11px;color:var(--text3)">🎟️ ${totalDraws} tirages</span>
-          ${p.sanction_malus?`<span style="font-size:11px;color:#FF6B6B">⚡ -${p.sanction_malus}</span>`:''}
-          ${trend?`<span title="${trend.label}" style="font-size:15px;color:${trend.color};font-weight:800">${trend.icon}</span>`:''}
-          <div style="position:relative;width:120px;height:8px;background:var(--border);border-radius:99px;overflow:hidden">
-            <div style="position:absolute;left:0;top:0;height:100%;width:${p.score}%;background:${getColor(p.score)};border-radius:99px;transition:width .4s"></div>
+        const coffresRaw=weeks.length?Math.round(weeks.filter(w=>w.validated).length/weeks.length*100):0;
+        return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;transition:border-color .2s" onmouseover="this.style.borderColor='var(--border2)'" onmouseout="this.style.borderColor='var(--border)'">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px">
+            <span style="width:24px;text-align:center;font-size:12px;font-weight:800;color:var(--text3);font-family:var(--font-mono)">${i+1}</span>
+            <span style="flex:1;font-weight:700;font-size:13px;color:var(--text)">${p.name}</span>
+            <span title="Tendance" style="font-size:14px;font-weight:800;color:${trendColor}">${trendIcon}</span>
+            <div style="position:relative;width:100px;height:7px;background:var(--border);border-radius:99px;overflow:hidden">
+              <div style="position:absolute;left:0;top:0;height:100%;width:${p.score}%;background:${getColor(p.score)};border-radius:99px;transition:width .5s ease"></div>
+            </div>
+            <span style="width:36px;text-align:right;font-size:14px;font-weight:800;font-family:var(--font-mono);color:${getColor(p.score)}">${p.score}%</span>
           </div>
-          <span style="width:36px;text-align:right;font-size:13px;font-weight:800;font-family:var(--font-mono);color:${getColor(p.score)}">${p.score}%</span>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--border)">
+            ${[
+              {lbl:'📦 Coffres',val:d.coffres+'%',note:'(pondéré)'},
+              {lbl:'🎟️ Présence',val:d.draws+'%',note:'vs médiane'},
+              {lbl:'⚡ Sanctions',val:d.sanction+'%',note:'(décroissant)'},
+              {lbl:'📈 Tendance',val:d.trend+'%',note:d.trendLabel||''},
+            ].map(({lbl,val,note})=>`
+              <div style="padding:7px 10px;border-right:1px solid var(--border);last-child{border:none}">
+                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">${lbl}</div>
+                <div style="font-size:12px;font-weight:700;color:var(--text);font-family:var(--font-mono)">${val}</div>
+                <div style="font-size:9px;color:var(--text3);opacity:.7">${note}</div>
+              </div>`).join('')}
+          </div>
         </div>`;
       }).join('')}
+      ${insufficient.length?`
+        <div style="margin-top:12px;padding:10px 14px;background:var(--surface);border:1px dashed var(--border);border-radius:var(--radius-lg)">
+          <div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:8px">⏳ Données insuffisantes (< 2 semaines archivées)</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${insufficient.map(p=>`<span style="font-size:12px;padding:3px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:99px;color:var(--text2)">${p.name}</span>`).join('')}
+          </div>
+        </div>`:''}
     </div>`;
 }
 
@@ -4024,6 +4188,56 @@ function renderStatsDays(){
         </div>`;
       }).join('')}
     </div>`;
+}
+
+function openRepairModal(){
+  if(!isAdmin())return;
+  // Remplir le select avec les joueurs actuels
+  const sel=document.getElementById('repairNewName');
+  sel.innerHTML='<option value="">— Choisir un joueur —</option>'+
+    [...participants].sort((a,b)=>a.name.localeCompare(b.name))
+      .map(p=>`<option value="${p.name}">${p.name}</option>`).join('');
+  document.getElementById('repairOldName').value='';
+  document.getElementById('repairPreview').textContent='';
+  openModal('repairModal');
+  // Aperçu en temps réel
+  const updatePreview=()=>{
+    const old=document.getElementById('repairOldName').value.trim();
+    const nw=document.getElementById('repairNewName').value;
+    const prev=document.getElementById('repairPreview');
+    if(!old||!nw){prev.textContent='';return;}
+    if(old.toLowerCase()===nw.toLowerCase()){prev.innerHTML='<span style="color:#FFB84D">⚠️ Les deux noms sont identiques (casse différente seulement).</span>';return;}
+    // Compter les entrées concernées
+    const wh=weeksHistory.filter(w=>w.participant_name===old).length;
+    const sc=sanctionsData.filter(s=>s.participant_name===old).length;
+    const dr=history.filter(h=>h.driver===old||h.vip===old).length;
+    prev.innerHTML=`<span style="color:#4FD1A5">✓ Entrées trouvées :</span> ${wh} semaine${wh>1?'s':''} archivée${wh>1?'s':''}, ${sc} sanction${sc>1?'s':''}, ${dr} tirage${dr>1?'s':''}`;
+  };
+  document.getElementById('repairOldName').oninput=updatePreview;
+  document.getElementById('repairNewName').onchange=updatePreview;
+}
+
+async function doRepairHistory(){
+  const oldName=document.getElementById('repairOldName').value.trim();
+  const newName=document.getElementById('repairNewName').value;
+  if(!oldName||!newName){toast('Remplis les deux champs');return;}
+  if(!confirm(`Remplacer toutes les occurrences de "${oldName}" par "${newName}" dans l'historique ?\n\nCette action est irréversible.`))return;
+  const p=participants.find(x=>x.name===newName);
+  if(!p){toast('Joueur introuvable');return;}
+  closeModal('repairModal');
+  setBusy(true);
+  await Promise.all([
+    sb.from('weeks_history').update({participant_name:newName}).eq('participant_name',oldName),
+    sb.from('sanctions').update({participant_name:newName}).eq('participant_name',oldName),
+    sb.from('historique').update({driver:newName}).eq('driver',oldName),
+    sb.from('historique').update({vip:newName}).eq('vip',oldName),
+    sb.from('weekly_draws').update({driver:newName}).eq('driver',oldName),
+    sb.from('weekly_draws').update({vip:newName}).eq('vip',oldName),
+    sb.from('tdd_poll').update({participant_name:newName}).eq('participant_name',oldName),
+  ]);
+  await loadAll();
+  setBusy(false);
+  toast(`✅ Historique de "${oldName}" rattaché à ${newName}`);
 }
 
 function onSearch(){searchFilter=document.getElementById('searchInput').value.toLowerCase();document.getElementById('searchClear').classList.toggle('show',searchFilter.length>0);render();}
@@ -4177,7 +4391,24 @@ async function renameName(id,oldName,newName){
   const n=newName.trim();
   if(!n||n===oldName){render();return;}
   if(participants.find(p=>p.name.toLowerCase()===n.toLowerCase()&&p.id!==id)){toast('Ce nom existe déjà !');render();return;}
-  setBusy(true);await sb.from('participants').update({name:n}).eq('id',id);setBusy(false);
+  setBusy(true);
+  await propagateRename(id, oldName, n);
+  setBusy(false);
+}
+
+// Propage un renommage dans TOUTES les tables qui stockent le nom en texte
+async function propagateRename(id, oldName, newName){
+  if(!sb||!oldName||!newName||oldName===newName) return;
+  await Promise.all([
+    sb.from('participants').update({name:newName}).eq('id',id),
+    sb.from('weeks_history').update({participant_name:newName}).eq('participant_name',oldName),
+    sb.from('sanctions').update({participant_name:newName}).eq('participant_name',oldName),
+    sb.from('historique').update({driver:newName}).eq('driver',oldName),
+    sb.from('historique').update({vip:newName}).eq('vip',oldName),
+    sb.from('weekly_draws').update({driver:newName}).eq('driver',oldName),
+    sb.from('weekly_draws').update({vip:newName}).eq('vip',oldName),
+    sb.from('tdd_poll').update({participant_name:newName}).eq('participant_name',oldName),
+  ]);
 }
 
 async function reorder(ids){
@@ -4733,5 +4964,28 @@ window.addEventListener('load',()=>{
   </div>
 </div>
 
+<div class="modal-ov" id="repairModal">
+  <div class="modal-box" style="max-width:440px">
+    <h3 style="margin:0 0 16px;font-size:15px;color:var(--text)">🔧 Réparer l'historique d'un joueur renommé</h3>
+    <p style="font-size:12px;color:var(--text3);margin:0 0 14px;line-height:1.6">Si un joueur a été renommé sans propagation (ex : FLAV → Flav), ses anciennes entrées ne sont plus rattachées à son compte. Renseigne l'ancien et le nouveau pseudo pour tout corriger rétroactivement.</p>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">
+      <div>
+        <label style="font-size:11px;font-weight:700;color:var(--text3);display:block;margin-bottom:4px">ANCIEN pseudo (tel qu'il apparaît dans l'historique)</label>
+        <input id="repairOldName" type="text" placeholder="ex : FLAV" style="width:100%;height:36px;padding:0 10px;background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius-lg);color:var(--text);font-size:13px;box-sizing:border-box">
+      </div>
+      <div>
+        <label style="font-size:11px;font-weight:700;color:var(--text3);display:block;margin-bottom:4px">NOUVEAU pseudo (nom actuel dans la liste)</label>
+        <select id="repairNewName" style="width:100%;height:36px;padding:0 10px;background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius-lg);color:var(--text);font-size:13px;box-sizing:border-box">
+          <option value="">— Choisir un joueur —</option>
+        </select>
+      </div>
+    </div>
+    <div id="repairPreview" style="font-size:11px;color:var(--text3);min-height:20px;margin-bottom:14px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn" onclick="closeModal('repairModal')">Annuler</button>
+      <button class="btn btn-primary" onclick="doRepairHistory()">🔧 Réparer</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
