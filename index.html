@@ -2035,6 +2035,7 @@ const PERM_SECTIONS=[
   {id:'sectionStats',   label:'Statistiques',  icon:'📊'},
   {id:'secEvents',      label:'Événements',    icon:'⚔️'},
   {id:'secArchive',     label:'Archives',      icon:'📦'},
+  {id:'aboutSection',   label:'À propos',      icon:'ℹ️'},
 ];
 
 const DEFAULT_PERM={
@@ -2047,6 +2048,7 @@ let permTableExists=true;
 function canSeeSection(secId){
   if(!currentUser)return false;
   const role=currentUser.role;
+  if(secId==='aboutSection') return role==='admin'; // À propos = admin uniquement
   if(role==='admin')return true;
   const p=role==='staff'?permConfig.staff:permConfig.member;
   return p[secId]!==false;
@@ -2772,7 +2774,7 @@ function showApp(){
   else document.getElementById('sessionInfo').textContent='· Session temporaire';
   document.getElementById('sectionParticipants').style.display=isAdminOrStaff()?'':'none';
   document.getElementById('sectionStats').style.display=isAdminOrStaff()?'':'none';
-  document.getElementById('aboutSection').style.display=isAdmin()?'block':'none';
+  // aboutSection géré via canSeeSection dans PERM_SECTIONS
   loadRestorePoints();
   // ── Mobile UI init ──
   const mobAv=document.getElementById('mobAvatar');
