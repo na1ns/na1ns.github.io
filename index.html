@@ -3917,23 +3917,16 @@ function computeReliabilityScore(p){
   // Normaliser : 5 tickets récents = pénalité max
   const sanctionScore = Math.max(0, 1 - Math.min(1, sanctionPenalty / 5));
 
-  // ── 4. Tendance (15%) ─────────────────────────────────
-  // Compare taux de coffres : 2 dernières semaines vs 2 précédentes
-  let trendScore = 0.5; // neutre par défaut
-  if(weeks.length >= 4){
-    const recent = weeks.slice(-2);
-    const before = weeks.slice(-4, -2);
-    const rateRecent = recent.filter(w=>w.validated).length / recent.length;
-    const rateBefore = before.filter(w=>w.validated).length / before.length;
-    const diff = rateRecent - rateBefore;
-    // diff entre -1 et +1 → score entre 0 et 1, centré à 0.5
-    trendScore = Math.max(0, Math.min(1, 0.5 + diff * 0.75));
-  } else if(weeks.length >= 2){
-    // Seulement 2-3 semaines : comparaison simple dernière vs moyenne
-    const lastWeek = weeks[weeks.length-1];
-    const prevRate = weeks.slice(0,-1).filter(w=>w.validated).length / (weeks.length-1);
-    const lastRate = lastWeek.validated ? 1 : 0;
-    trendScore = Math.max(0, Math.min(1, 0.5 + (lastRate - prevRate) * 0.75));
+  // ── 4. Tendance (10%) ─────────────────────────────────
+  // Compare la dernière semaine à la semaine précédente
+  let trendScore = 0.5; // neutre si pas assez de données
+  if(weeks.length >= 2){
+    const lastWeek  = weeks[weeks.length-1];
+    const prevWeek  = weeks[weeks.length-2];
+    const lastRate  = lastWeek.validated  ? 1 : 0;
+    const prevRate  = prevWeek.validated  ? 1 : 0;
+    const diff = lastRate - prevRate;
+    trendScore = Math.max(0, Math.min(1, 0.5 + diff * 0.5));
   }
 
   // ── Score final ───────────────────────────────────────
@@ -3970,13 +3963,14 @@ function computeReliabilityDetail(p){
   const sanction=Math.max(0,1-Math.min(1,pen/5));
 
   let trend=0.5;
-  const label=weeks.length>=4?((()=>{
-    const r=weeks.slice(-2).filter(w=>w.validated).length/2;
-    const b=weeks.slice(-4,-2).filter(w=>w.validated).length/2;
-    const d=r-b;
-    trend=Math.max(0,Math.min(1,0.5+d*0.75));
-    return d>0.1?'↑ En progression':d<-0.1?'↓ En régression':'→ Stable';
-  })()):'→ Insuffisant';
+  let label='→ Insuffisant';
+  if(weeks.length>=2){
+    const lastRate = weeks[weeks.length-1].validated ? 1 : 0;
+    const prevRate = weeks[weeks.length-2].validated ? 1 : 0;
+    const d = lastRate - prevRate;
+    trend = Math.max(0, Math.min(1, 0.5 + d * 0.5));
+    label = d > 0 ? '↑ En progression' : d < 0 ? '↓ En régression' : '→ Stable';
+  }
 
   return {
     coffres:Math.round(coffres*100),
