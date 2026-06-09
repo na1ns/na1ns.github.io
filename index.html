@@ -3937,7 +3937,7 @@ function computeReliabilityScore(p){
   }
 
   // ── Score final ───────────────────────────────────────
-  const raw = coffresScore*0.40 + drawScore*0.25 + sanctionScore*0.20 + trendScore*0.15;
+  const raw = coffresScore*0.55 + drawScore*0.15 + sanctionScore*0.20 + trendScore*0.10;
   return Math.round(raw * 100);
 }
 
@@ -4015,10 +4015,10 @@ function renderStatsReliability(){
     <details style="margin-bottom:12px;font-size:11px;color:var(--text3);cursor:pointer">
       <summary style="font-weight:700;letter-spacing:.03em;user-select:none">ℹ️ Comment est calculé ce score ?</summary>
       <div style="margin-top:8px;padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);line-height:1.7">
-        <b style="color:var(--text)">40% Coffres pondérés</b> — Les semaines récentes comptent davantage (décroissance exponentielle). Un joueur qui fait ses coffres <i>maintenant</i> est mieux noté qu'un qui était régulier mais ne l'est plus.<br>
-        <b style="color:var(--text)">25% Présence relative</b> — Tirages comparés à la médiane de la guilde. Un nouveau joueur n'est pas pénalisé d'office pour avoir peu de tirages.<br>
+        <b style="color:var(--text)">55% Coffres pondérés</b> — Les semaines récentes comptent davantage (décroissance exponentielle). Un joueur qui fait ses coffres <i>maintenant</i> est mieux noté qu'un qui était régulier mais ne l'est plus.<br>
+        <b style="color:var(--text)">15% Présence relative</b> — Tirages comparés à la médiane de la guilde. Un nouveau joueur n'est pas pénalisé d'office pour avoir peu de tirages.<br>
         <b style="color:var(--text)">20% Sanctions temporelles</b> — Chaque sanction perd de l'impact avec le temps (demi-vie 4 semaines). Une ancienne absence pèse moins qu'une récente.<br>
-        <b style="color:var(--text)">15% Tendance</b> — Comparaison des 2 dernières semaines vs les 2 précédentes. Bonus si le joueur progresse, malus s'il régresse.
+        <b style="color:var(--text)">10% Tendance</b> — Comparaison des 2 dernières semaines vs les 2 précédentes. Bonus si le joueur progresse, malus s'il régresse.
       </div>
     </details>
 
@@ -4035,7 +4035,7 @@ function renderStatsReliability(){
               {lbl:'📦 Coffres',val:d.coffres+'%',note:'(pondéré)'},
               {lbl:'🎟️ Présence',val:d.neverDrawn?'—':d.draws+'%',note:d.neverDrawn?'jamais tiré':'vs médiane'},
               {lbl:'⚡ Sanctions',val:d.hasSanctions?d.sanction+'%':'✓',note:d.hasSanctions?'(décroissant)':'aucune'},
-              {lbl:'📈 Tendance',val:d.trend+'%',note:d.trendLabel||''},
+              {lbl:'📈 Tendance',val:trendIcon,note:d.trendLabel||''},
             ].map(({lbl,val,note})=>`
               <div style="padding:7px 10px;border-right:1px solid var(--border)">
                 <div style="font-size:10px;color:var(--text3);margin-bottom:2px">${lbl}</div>
