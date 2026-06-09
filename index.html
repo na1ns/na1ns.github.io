@@ -1508,6 +1508,7 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
   <div class="mob-topbar-actions">
     <button class="mob-icon-btn" id="mobThemeBtn" onclick="toggleTheme()" title="Changer le thème">🌙</button>
     <button class="mob-icon-btn" onclick="toggleLayout()" title="Passer en mode PC" style="font-size:14px">🖥️</button>
+    <button class="mob-icon-btn" onclick="doLogout()" title="Déconnexion" style="font-size:16px">⎋</button>
     <div class="mob-avatar-chip member" id="mobAvatar" onclick="mobTab('secMore')" title="Mon compte"></div>
   </div>
 </div>
@@ -1725,7 +1726,6 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
             <button class="stats-view-tab" id="svtLeaderboard" onclick="setStatsView('leaderboard')">📋 Classement</button>
             <button class="stats-view-tab" id="svtReliability" onclick="setStatsView('reliability')">🎯 Fiabilité</button>
             <button class="stats-view-tab" id="svtSanctions" onclick="setStatsView('sanctions')">⚡ Sanctions</button>
-            <button class="stats-view-tab" id="svtDays" onclick="setStatsView('days')">📅 Jours</button>
           </div>
           <div id="statsViewPodium" style="display:none">
             <div id="statsPodium"></div>
@@ -1754,9 +1754,6 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
           </div>
           <div id="statsViewSanctions" style="display:none">
             <div id="statsSanctionsContainer"></div>
-          </div>
-          <div id="statsViewDays" style="display:none">
-            <div id="statsDaysContainer"></div>
           </div>
         </div>
       </div>
@@ -2071,12 +2068,22 @@ function applyPermissions(){
     if(g&&!g.innerHTML)renderStats();
     else if(!g)renderStats();
   }
-  // Mobile: si l'onglet actif est maintenant caché, aller sur le premier visible
+  // Mobile : reconstruire la nav selon les sections visibles
   if(isMob){
-    const active=document.querySelector('.section.mob-active');
-    if(active&&active.style.display==='none'){
-      const first=PERM_SECTIONS.find(s=>canSeeSection(s.id));
-      if(first)mobTab(first.id);
+    // Afficher/masquer le bouton "Plus" selon s'il y a des sections dedans
+    const moreBtn = document.querySelector('.mob-nav-btn[data-tab="secMore"]');
+    if(moreBtn) moreBtn.style.display = getMobMoreSections().length ? '' : 'none';
+
+    // Si l'onglet actif n'est plus visible, naviguer vers le premier visible
+    const active = document.querySelector('.section.mob-active');
+    const activeHidden = !active || active.style.display === 'none' ||
+      (active.id && !canSeeSection(active.id) && active.id !== 'secMore');
+
+    if(activeHidden || !active){
+      // Chercher d'abord dans les boutons dédiés visibles
+      const firstDedicated = MOB_NAV_DEDICATED.find(id => canSeeSection(id));
+      if(firstDedicated) mobTab(firstDedicated);
+      else if(getMobMoreSections().length) mobTab('secMore');
     }
   }
 }
@@ -3531,7 +3538,7 @@ function setStatSort(key,btn){
 
 function setStatsView(view){
   currentStatsView=view;
-  ['podium','cards','leaderboard','reliability','sanctions','days'].forEach(v=>{
+  ['podium','cards','leaderboard','reliability','sanctions'].forEach(v=>{
     const el=document.getElementById('statsView'+v.charAt(0).toUpperCase()+v.slice(1));
     const tab=document.getElementById('svt'+v.charAt(0).toUpperCase()+v.slice(1));
     if(el)el.style.display=v===view?'':'none';
@@ -3539,7 +3546,6 @@ function setStatsView(view){
   });
   if(view==='reliability') renderStatsReliability();
   if(view==='sanctions')   renderStatsSanctions();
-  if(view==='days')        renderStatsDays();
 }
 
 function onStatsSearch(inp){
@@ -4151,95 +4157,6 @@ function renderStatsSanctions(){
     </div>`;
 }
 
-/* ══════════════════════════════════════════════════════
-   JOURS — Analyse par jour de la semaine
-   ══════════════════════════════════════════════════════ */
-function renderStatsDays(){
-  const el=document.getElementById('statsDaysContainer');
-  if(!el)return;
-  const DAYS=['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
-  const DAYS_SHORT=['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
-  const weeklyByDay=history.filter(h=>h.is_weekly&&h.week_day);
-  const countByDay={};const sanctByDay={};
-  DAYS.forEach(d=>{countByDay[d]=0;sanctByDay[d]=0;});
-  weeklyByDay.forEach(h=>{if(countByDay[h.week_day]!==undefined)countByDay[h.week_day]++;});
-  sanctionsData.forEach(s=>{
-    const d=new Date(s.created_at);
-    const dn=DAYS[d.getDay()===0?6:d.getDay()-1];
-    if(sanctByDay[dn]!==undefined)sanctByDay[dn]++;
-  });
-  const totalWeekly=weeklyByDay.length;
-  const mostActiveDay=DAYS.reduce((a,b)=>countByDay[a]>=countByDay[b]?a:b);
-  const mostRiskyDay=DAYS.reduce((a,b)=>sanctByDay[a]>=sanctByDay[b]?a:b);
-  el.innerHTML=`
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin:4px 0 18px">
-      ${[{val:totalWeekly,lbl:'Tirages hebdo total',color:'var(--blue)'},{val:mostActiveDay,lbl:'Jour le + actif',color:'#4FD1A5'},{val:mostRiskyDay,lbl:'Plus de sanctions',color:'#FF6B6B'},{val:sanctionsData.length?sanctByDay[mostRiskyDay]:'—',lbl:'Sanctions ce jour',color:'#FFB84D'}]
-        .map(({val,lbl,color})=>`<div class="stats-global-card"><div class="stats-global-val" style="color:${color};font-size:${String(val).length>8?'14px':'26px'}">${val}</div><div class="stats-global-lbl">${lbl}</div></div>`).join('')}
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:16px">
-      ${DAYS.map((day,i)=>{
-        const draws=countByDay[day];const sanct=sanctByDay[day];
-        const pct=Math.round(draws/Math.max(totalWeekly,1)*100);
-        return `<div style="text-align:center;padding:12px 4px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg)">
-          <div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:8px">${DAYS_SHORT[i]}</div>
-          <div style="font-size:20px;font-weight:800;color:var(--text);font-family:var(--font-mono)">${draws}</div>
-          <div style="font-size:10px;color:var(--text3);margin-bottom:6px">tirages</div>
-          ${sanct?`<div style="font-size:12px;color:#FF6B6B;font-weight:700">⚡${sanct}</div>`:'<div style="font-size:12px;color:#4FD1A5">✓</div>'}
-        </div>`;
-      }).join('')}
-    </div>`;
-}
-
-function openRepairModal(){
-  if(!isAdmin())return;
-  // Remplir le select avec les joueurs actuels
-  const sel=document.getElementById('repairNewName');
-  sel.innerHTML='<option value="">— Choisir un joueur —</option>'+
-    [...participants].sort((a,b)=>a.name.localeCompare(b.name))
-      .map(p=>`<option value="${p.name}">${p.name}</option>`).join('');
-  document.getElementById('repairOldName').value='';
-  document.getElementById('repairPreview').textContent='';
-  openModal('repairModal');
-  // Aperçu en temps réel
-  const updatePreview=()=>{
-    const old=document.getElementById('repairOldName').value.trim();
-    const nw=document.getElementById('repairNewName').value;
-    const prev=document.getElementById('repairPreview');
-    if(!old||!nw){prev.textContent='';return;}
-    if(old.toLowerCase()===nw.toLowerCase()){prev.innerHTML='<span style="color:#FFB84D">⚠️ Les deux noms sont identiques (casse différente seulement).</span>';return;}
-    // Compter les entrées concernées
-    const wh=weeksHistory.filter(w=>w.participant_name===old).length;
-    const sc=sanctionsData.filter(s=>s.participant_name===old).length;
-    const dr=history.filter(h=>h.driver===old||h.vip===old).length;
-    prev.innerHTML=`<span style="color:#4FD1A5">✓ Entrées trouvées :</span> ${wh} semaine${wh>1?'s':''} archivée${wh>1?'s':''}, ${sc} sanction${sc>1?'s':''}, ${dr} tirage${dr>1?'s':''}`;
-  };
-  document.getElementById('repairOldName').oninput=updatePreview;
-  document.getElementById('repairNewName').onchange=updatePreview;
-}
-
-async function doRepairHistory(){
-  const oldName=document.getElementById('repairOldName').value.trim();
-  const newName=document.getElementById('repairNewName').value;
-  if(!oldName||!newName){toast('Remplis les deux champs');return;}
-  if(!confirm(`Remplacer toutes les occurrences de "${oldName}" par "${newName}" dans l'historique ?\n\nCette action est irréversible.`))return;
-  const p=participants.find(x=>x.name===newName);
-  if(!p){toast('Joueur introuvable');return;}
-  closeModal('repairModal');
-  setBusy(true);
-  await Promise.all([
-    sb.from('weeks_history').update({participant_name:newName}).eq('participant_name',oldName),
-    sb.from('sanctions').update({participant_name:newName}).eq('participant_name',oldName),
-    sb.from('historique').update({driver:newName}).eq('driver',oldName),
-    sb.from('historique').update({vip:newName}).eq('vip',oldName),
-    sb.from('weekly_draws').update({driver:newName}).eq('driver',oldName),
-    sb.from('weekly_draws').update({vip:newName}).eq('vip',oldName),
-    sb.from('tdd_poll').update({participant_name:newName}).eq('participant_name',oldName),
-  ]);
-  await loadAll();
-  setBusy(false);
-  toast(`✅ Historique de "${oldName}" rattaché à ${newName}`);
-}
-
 function onSearch(){searchFilter=document.getElementById('searchInput').value.toLowerCase();document.getElementById('searchClear').classList.toggle('show',searchFilter.length>0);render();}
 function clearSearch(){document.getElementById('searchInput').value='';searchFilter='';document.getElementById('searchClear').classList.remove('show');render();}
 async function toggleSortAlpha(){
@@ -4494,12 +4411,25 @@ async function resetAll(){
   toast('Tout a été réinitialisé !');setBusy(false);
 }
 
+// Sections ayant leur propre bouton dans la nav mobile (pas dans "Plus")
+const MOB_NAV_DEDICATED = ['secTirage','sectionParticipants','sectionStats','secEvents'];
+
+function getMobMoreSections(){
+  // "Plus" = toutes les sections visibles qui n'ont pas leur propre bouton dédié
+  return PERM_SECTIONS
+    .filter(s => !MOB_NAV_DEDICATED.includes(s.id) && canSeeSection(s.id))
+    .map(s => s.id)
+    .filter(id => document.getElementById(id));
+}
+
 function mobTab(tabId){
   if(!document.body.classList.contains('mobile'))return;
-  const restricted=['sectionParticipants','sectionStats'];
-  if(restricted.includes(tabId)&&!isAdminOrStaff())return;
+  // Vérifier que la section est accessible
+  if(tabId !== 'secMore' && !canSeeSection(tabId)) return;
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('mob-active'));
-  const targets=tabId==='secMore'?['secHist','secArchive',...(isAdmin()?['aboutSection']:[])].filter(id=>document.getElementById(id)):[tabId];
+  // secMore = sections visibles sans bouton dédié
+  const targets = tabId === 'secMore' ? getMobMoreSections() : [tabId];
+  if(!targets.length) return; // rien à afficher
   targets.forEach(id=>{
     const sec=document.getElementById(id);if(!sec)return;
     sec.classList.add('mob-active');
@@ -4774,7 +4704,18 @@ function applyLayout(mode){
     const savedTab=localStorage.getItem('mob_tab')||'secTirage';
     setTimeout(()=>mobTab(savedTab),0);
   }else{
-    document.querySelectorAll('.section.mob-active').forEach(s=>s.classList.remove('mob-active'));
+    // Retour PC : nettoyer mob-active ET les styles inline forcés par mobTab
+    document.querySelectorAll('.section').forEach(s=>{
+      s.classList.remove('mob-active');
+      s.style.display = '';
+    });
+    document.querySelectorAll('.section-body').forEach(b=>{
+      b.style.maxHeight = '';
+      b.style.overflow  = '';
+      b.style.opacity   = '';
+      b.style.pointerEvents = '';
+      b.style.marginTop = '';
+    });
   }
 }
 
