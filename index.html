@@ -2666,17 +2666,22 @@ async function confirmReplace(newPlayerName){
   // Mettre à jour le planning de la semaine
   await sb.from('weekly_draws').update(update).eq('id', sanctionDrawId);
 
-  // Mettre à jour l'historique des tirages : trouver l'entrée la plus récente pour ce joueur/rôle/jour
-  if(draw && draw.week_day){
+  // Mettre à jour l'historique des tirages : trouver l'entrée correspondant au bon jour
+  // weekly_draws stocke day_index (0=Lundi…6=Dimanche), pas week_day en texte
+  if(draw && draw.day_index !== undefined){
+    const dayName = DAYS_LABELS_WEEK[draw.day_index];
     const {data: histEntries} = await sb.from('historique')
       .select('id')
       .eq(field, sanctionPlayerName)
-      .eq('week_day', draw.week_day)
+      .eq('week_day', dayName)
       .eq('is_weekly', true)
       .order('created_at', {ascending: false})
       .limit(1);
     if(histEntries && histEntries.length){
       await sb.from('historique').update(update).eq('id', histEntries[0].id);
+      // Mettre aussi à jour le tableau local pour éviter un rechargement complet
+      const h = history.find(x=>x.id===histEntries[0].id);
+      if(h) h[field] = newPlayerName;
     }
   }
 
