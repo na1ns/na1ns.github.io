@@ -2585,11 +2585,12 @@ function updateSanctionPreview(){
   document.getElementById('sanctionTicketsVal').textContent = lost;
   const p = participants.find(x=>x.name===sanctionPlayerName);
   if(!p){ document.getElementById('sanctionPreview').innerHTML=''; return; }
-  const after = Math.max(1, cur-lost);
+  const cur = p.sanction_malus || 0;
+  const after = cur + lost;
   document.getElementById('sanctionPreview').innerHTML=`
     <div class="sanction-preview-item">
-      <span class="sanction-preview-label">Tickets actuels</span>
-      <span class="sanction-preview-val">${Math.max(1,cur)} pts</span>
+      <span class="sanction-preview-label">Malus actuel</span>
+      <span class="sanction-preview-val">${cur} pts</span>
     </div>
     <div style="font-size:18px;color:var(--text3);align-self:center">→</div>
     <div class="sanction-preview-item">
