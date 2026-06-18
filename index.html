@@ -1432,19 +1432,9 @@ body.light .poll-ev-banner{background:rgba(26,63,196,.04);border-color:rgba(26,6
 .planning-absent-btn{flex-shrink:0;width:20px;height:20px;border-radius:50%;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.2);color:var(--red);font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;opacity:0;line-height:1}
 .planning-day-card:hover .planning-absent-btn{opacity:1}
 .planning-absent-btn:hover{background:rgba(255,107,107,.2);transform:scale(1.1)}
-/* Sanction modal */
-.sanction-step{animation:fadeIn .2s ease}
 .modal-overlay{position:fixed;inset:0;z-index:500;background:transparent;pointer-events:none}
 .modal-overlay .modal{position:fixed;max-width:380px;width:calc(100vw - 32px);box-shadow:0 8px 40px rgba(0,0,0,.55);z-index:501;pointer-events:all;animation:fadeIn .15s ease}
 .modal-overlay-backdrop{position:fixed;inset:0;z-index:499;background:rgba(0,0,0,.35);backdrop-filter:blur(2px)}
-.sanction-player-chip{display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(255,107,107,.06);border:1px solid rgba(255,107,107,.2);border-radius:var(--radius-lg);margin-bottom:16px}
-.sanction-player-name{font-weight:800;color:var(--text);font-size:14px}
-.sanction-role-tag{font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;background:rgba(255,107,107,.1);color:var(--red)}
-.sanction-preview{display:flex;gap:12px;padding:10px 14px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:var(--radius-lg);font-size:12px;margin-bottom:12px}
-.sanction-preview-item{display:flex;flex-direction:column;gap:2px;flex:1}
-.sanction-preview-label{color:var(--text3);font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
-.sanction-preview-val{font-weight:800;color:var(--text)}
-.sanction-preview-val.after{color:var(--red)}
 .reason-inp{width:100%;height:36px;padding:0 12px;background:rgba(255,255,255,.03);border:1px solid var(--border2);border-radius:var(--radius-lg);color:var(--text);font-family:inherit;font-size:12px;outline:none;margin-bottom:14px}
 .reason-inp:focus{border-color:var(--blue2)}
 .reason-inp::placeholder{color:var(--text4)}
@@ -1452,12 +1442,6 @@ body.light .poll-ev-banner{background:rgba(26,63,196,.04);border-color:rgba(26,6
 .replace-player-btn{width:100%;text-align:left;padding:10px 14px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:var(--radius-lg);color:var(--text);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:space-between}
 .replace-player-btn:hover{border-color:var(--blue);background:rgba(124,159,255,.05)}
 .replace-player-elig{font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:rgba(72,199,142,.1);color:var(--green)}
-/* Sanction badge & history on player card */
-.sanction-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:6px;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.2);font-size:11px;font-weight:700;color:var(--red)}
-.sanction-hist-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px}
-.sanction-hist-row:last-child{border-bottom:none}
-.sanction-hist-date{font-size:10px;color:var(--text3);white-space:nowrap}
-.sanction-hist-reason{color:var(--text2);flex:1;font-style:italic}
 body.light .planning-absent-btn{background:rgba(184,32,32,.06);border-color:rgba(184,32,32,.15)}
 body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(--border2)}
 
@@ -1567,7 +1551,6 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
       <div class="legend-box" style="margin-top:16px">
         <span>🏆</span>
         <div>
-          <strong style="display:block;margin-bottom:2px">Système de sanctions</strong>
           Par défaut, tous les jours sont validés ✓. Cochez ✗ uniquement les jours manqués.
           Aucune case cochée = semaine complète = éligible 🏆.
         </div>
@@ -1717,7 +1700,6 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
             <button class="stats-view-tab active" id="svtCards" onclick="setStatsView('cards')">👤 Joueurs</button>
             <button class="stats-view-tab" id="svtLeaderboard" onclick="setStatsView('leaderboard')">📋 Classement</button>
             <button class="stats-view-tab" id="svtReliability" onclick="setStatsView('reliability')">🎯 Fiabilité</button>
-            <button class="stats-view-tab" id="svtSanctions" onclick="setStatsView('sanctions')">⚡ Sanctions</button>
           </div>
           <div id="statsViewPodium" style="display:none">
             <div id="statsPodium"></div>
@@ -1743,9 +1725,6 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
           </div>
           <div id="statsViewReliability" style="display:none">
             <div id="statsReliabilityContainer"></div>
-          </div>
-          <div id="statsViewSanctions" style="display:none">
-            <div id="statsSanctionsContainer"></div>
           </div>
         </div>
       </div>
@@ -2503,30 +2482,17 @@ function copyPollLink(){
 // ────────────────────────────────────────────────────────────────────────────
 
 // ══ SYSTÈME DE SANCTIONS ════════════════════════════════════════════════════
-let sanctionDrawId = null;
-let sanctionRole = null;
-let sanctionPlayerName = null;
-let sanctionsData = [];
 
-async function loadSanctions(){
-  if(!sb)return;
-  try{
-    const{data}=await sb.from('sanctions').select('*').order('created_at',{ascending:false});
-    sanctionsData = data||[];
-  }catch(e){ sanctionsData=[]; }
-}
+
+
+
+let sanctionDrawId = null, sanctionRole = null, sanctionPlayerName = null;
 
 function openAbsentModal(evt, drawId, role, playerName){
   sanctionDrawId = drawId;
   sanctionRole = role;
   sanctionPlayerName = playerName;
-  document.getElementById('absentPlayerName').textContent = playerName;
-  document.getElementById('absentRoleTag').textContent = role==='driver' ? 'Chauffeur' : 'VIP';
-  document.getElementById('sanctionSlider').value = 2;
-  document.getElementById('sanctionReason').value = '';
-  updateSanctionPreview();
   renderReplaceList();
-  showAbsentStep(2);
 
   // Positionner la bulle près du bouton cliqué
   const modal = document.getElementById('absentModal');
@@ -2570,59 +2536,15 @@ function closeAbsentModal(){
   document.getElementById('absentModal').style.display='none';
   const bd = document.getElementById('absentBackdrop');
   if(bd) bd.style.display = 'none';
-  sanctionDrawId=null; sanctionRole=null; sanctionPlayerName=null;
+
 }
 
-function showAbsentStep(n){
-  document.getElementById('absentStep1').style.display = n===1?'':'none';
-  document.getElementById('absentStep2').style.display = n===2?'':'none';
-  document.getElementById('absentModalTitle').textContent = n===1 ? 'Signaler une absence' : 'Choisir le remplaçant';
-}
+function showAbsentStep(n){ /* étape unique — remplaçant direct */ }
+function absentPrevStep(){ closeAbsentModal(); }
 
-function absentPrevStep(){ showAbsentStep(1); }
 
-function updateSanctionPreview(){
-  const lost = parseInt(document.getElementById('sanctionSlider').value);
-  document.getElementById('sanctionTicketsVal').textContent = lost;
-  const p = participants.find(x=>x.name===sanctionPlayerName);
-  if(!p){ document.getElementById('sanctionPreview').innerHTML=''; return; }
-  const cur = p.sanction_malus || 0;
-  const after = cur + lost;
-  document.getElementById('sanctionPreview').innerHTML=`
-    <div class="sanction-preview-item">
-      <span class="sanction-preview-label">Malus actuel</span>
-      <span class="sanction-preview-val">${cur} pts</span>
-    </div>
-    <div style="font-size:18px;color:var(--text3);align-self:center">→</div>
-    <div class="sanction-preview-item">
-      <span class="sanction-preview-label">Après sanction</span>
-      <span class="sanction-preview-val after">${after} pts</span>
-    </div>`;
-}
 
-async function absentNextStep(skipSanction=false){
-  const lost = skipSanction ? 0 : parseInt(document.getElementById('sanctionSlider').value);
-  const reason = document.getElementById('sanctionReason').value.trim();
-  // Appliquer la sanction
-  if(lost > 0){
-    const p = participants.find(x=>x.name===sanctionPlayerName);
-    if(p){
-      const newMalus = (p.sanction_malus||0) + lost;
-      await sb.from('participants').update({sanction_malus: newMalus}).eq('id',p.id);
-      await sb.from('sanctions').insert({
-        participant_id: p.id,
-        participant_name: sanctionPlayerName,
-        tickets_lost: lost,
-        reason: reason||null
-      });
-      p.sanction_malus = newMalus;
-      toast(`Sanction enregistrée pour ${sanctionPlayerName}`);
-    }
-  }
-  // Passer à l'étape 2 : choisir le remplaçant
-  renderReplaceList();
-  showAbsentStep(2);
-}
+
 
 function renderReplaceList(){
   const list = document.getElementById('replaceList');
@@ -2687,7 +2609,6 @@ async function confirmReplace(newPlayerName){
   }
   closeAbsentModal();
   await loadWeeklyDraws();
-  await loadSanctions();
   toast(`${newPlayerName} remplace ${sanctionPlayerName} ✅`);
 }
 // ────────────────────────────────────────────────────────────────────────────
@@ -2894,7 +2815,6 @@ async function loadAll(){
     initEvRoles();render();renderEventPlayers();renderEventTeams();
     if(canSeeSection('sectionStats'))renderStats();
   loadPollResults();
-  loadSanctions();
     loadDrawBuffer();
   }catch(e){setStatus('err','Erreur : '+(e.message||e));}
 }
@@ -3560,14 +3480,13 @@ function setStatSort(key,btn){
 
 function setStatsView(view){
   currentStatsView=view;
-  ['podium','cards','leaderboard','reliability','sanctions'].forEach(v=>{
+  ['podium','cards','leaderboard','reliability'].forEach(v=>{
     const el=document.getElementById('statsView'+v.charAt(0).toUpperCase()+v.slice(1));
     const tab=document.getElementById('svt'+v.charAt(0).toUpperCase()+v.slice(1));
     if(el)el.style.display=v===view?'':'none';
     if(tab)tab.classList.toggle('active',v===view);
   });
   if(view==='reliability') renderStatsReliability();
-  if(view==='sanctions')   renderStatsSanctions();
 }
 
 function onStatsSearch(inp){
@@ -3824,7 +3743,6 @@ function renderStatsCards(){
         <div class="stat-section-title">📅 Historique (${totalWeeks} semaine${totalWeeks>1?'s':''})</div>
         <div class="week-hist">${weekRows}</div>
       </div>
-      ${(()=>{const ps=sanctionsData.filter(s=>s.participant_name===p.name);if(!ps.length)return'';return`<div style="padding:10px 14px 0"><div class="stat-section-title" style="margin-bottom:8px">⚡ Sanctions (${ps.length})</div>${ps.slice(0,5).map(s=>{const d=new Date(s.created_at).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'});return`<div class="sanction-hist-row"><span class="sanction-hist-tickets">--${s.tickets_lost}⚡</span><span class="sanction-hist-reason">${s.reason||'Absence non justifiée'}</span><span class="sanction-hist-date">${d}</span></div>`;}).join('')}</div>`;})()}
       ${badges.length?`<div class="stat-badge-row">${badges.join('')}</div>`:''}
     </div>`;
   }).join('');
@@ -3880,8 +3798,7 @@ function renderStats(){
    ├─ Présence relative (25%) ─────────────────────────┤
    │  Tirages du joueur vs médiane de la guilde        │
    │  → évite de pénaliser les nouveaux                │
-   ├─ Sanctions temporelles (20%) ─────────────────────┤
-   │  Chaque sanction perd du poids avec le temps      │
+   ├─ Sanctions (neutralisées) ─────────────────────────┤
    │  (demi-vie = 4 semaines)                          │
    ├─ Tendance (15%) ──────────────────────────────────┤
    │  Comparaison 2 dernières semaines vs 2 précédentes│
@@ -3893,8 +3810,6 @@ function renderStats(){
 function computeReliabilityScore(p){
   const weeks = getPlayerWeeks(p);
   if(weeks.length < 2) return null; // données insuffisantes
-
-  const now = Date.now();
 
   // ── 1. Coffres pondérés (40%) ─────────────────────────
   // Poids de chaque semaine : exp(-0.15 * rang_depuis_fin)
@@ -3919,18 +3834,8 @@ function computeReliabilityScore(p){
     drawScore = Math.min(1, playerDraws / Math.max(median, 1));
   }
 
-  // ── 3. Sanctions temporelles (20%) ────────────────────
-  // Demi-vie = 4 semaines (28 jours) → sanction récente = plein impact
-  const playerSanctions = sanctionsData.filter(s => s.participant_name === p.name);
-  let sanctionPenalty = 0;
-  const HALF_LIFE_MS = 28 * 24 * 3600 * 1000;
-  playerSanctions.forEach(s => {
-    const age = now - new Date(s.created_at).getTime();
-    const decay = Math.exp(-Math.LN2 * age / HALF_LIFE_MS); // demi-vie 4 semaines
-    sanctionPenalty += (s.tickets_lost||1) * decay;
-  });
-  // Normaliser : 5 pts de malus récents = pénalité max
-  const sanctionScore = Math.max(0, 1 - Math.min(1, sanctionPenalty / 5));
+  // Sanctions supprimées — composante neutralisée
+  const sanctionScore = 1.0;
 
   // ── 4. Tendance (10%) ─────────────────────────────────
   // Compare la dernière semaine à la semaine précédente
@@ -3945,7 +3850,7 @@ function computeReliabilityScore(p){
   }
 
   // ── Score final ───────────────────────────────────────
-  const raw = coffresScore*0.55 + drawScore*0.15 + sanctionScore*0.20 + trendScore*0.10;
+  const raw = coffresScore*0.60 + drawScore*0.25 + trendScore*0.15;
   return Math.round(raw * 100);
 }
 
@@ -3971,11 +3876,6 @@ function computeReliabilityDetail(p){
   }
   const neverDrawn=playerDraws===0;
 
-  const ps=sanctionsData.filter(s=>s.participant_name===p.name);
-  let pen=0;
-  const HL=28*24*3600*1000;
-  ps.forEach(s=>{const age=now-new Date(s.created_at).getTime();pen+=(s.tickets_lost||1)*Math.exp(-Math.LN2*age/HL);});
-  const sanction=Math.max(0,1-Math.min(1,pen/5));
 
   let trend=0.5;
   let label='→ Insuffisant';
@@ -3990,12 +3890,10 @@ function computeReliabilityDetail(p){
   return {
     coffres:Math.round(coffres*100),
     draws:Math.round(draws*100),
-    sanction:Math.round(sanction*100),
     trend:Math.round(trend*100),
     trendLabel:label,
     weeks:weeks.length,
     neverDrawn,
-    hasSanctions: ps.length > 0
   };
 }
 
@@ -4026,7 +3924,7 @@ function renderStatsReliability(){
       <div style="margin-top:8px;padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);line-height:1.7">
         <b style="color:var(--text)">55% Coffres pondérés</b> — Les semaines récentes comptent davantage (décroissance exponentielle). Un joueur qui fait ses coffres <i>maintenant</i> est mieux noté qu'un qui était régulier mais ne l'est plus.<br>
         <b style="color:var(--text)">15% Présence relative</b> — Tirages comparés à la médiane de la guilde. Un nouveau joueur n'est pas pénalisé d'office pour avoir peu de tirages.<br>
-        <b style="color:var(--text)">20% Sanctions temporelles</b> — Chaque sanction perd de l'impact avec le temps (demi-vie 4 semaines). Une ancienne absence pèse moins qu'une récente.<br>
+        
         <b style="color:var(--text)">10% Tendance</b> — Comparaison des 2 dernières semaines vs les 2 précédentes. Bonus si le joueur progresse, malus s'il régresse.
       </div>
     </details>
@@ -4043,7 +3941,6 @@ function renderStatsReliability(){
             ${[
               {lbl:'📦 Coffres',val:d.coffres+'%',note:'(pondéré)'},
               {lbl:'🚂 Présence',val:d.neverDrawn?'—':d.draws+'%',note:d.neverDrawn?'jamais tiré':'vs médiane'},
-              {lbl:'⚡ Sanctions',val:d.hasSanctions?d.sanction+'%':'✓',note:d.hasSanctions?'(décroissant)':'aucune'},
               {lbl:'📈 Tendance',val:trendIcon,note:d.trendLabel||''},
             ].map(({lbl,val,note})=>`
               <div style="padding:7px 10px;border-right:1px solid var(--border)">
@@ -4072,75 +3969,6 @@ function renderStatsReliability(){
             ${insufficient.map(p=>`<span style="font-size:12px;padding:3px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:99px;color:var(--text2)">${p.name}</span>`).join('')}
           </div>
         </div>`:''}
-    </div>`;
-}
-
-/* ══════════════════════════════════════════════════════
-   SANCTIONS — Classement & historique + suppression
-   ══════════════════════════════════════════════════════ */
-async function deleteSanction(sanctionId,playerName,ticketsLost){
-  if(!isAdminOrStaff())return;
-  if(!confirm(`Supprimer cette sanction pour ${playerName} (-${ticketsLost} point${ticketsLost>1?'s':''}) ?`))return;
-  if(!sb)return;
-  const{error}=await sb.from('sanctions').delete().eq('id',sanctionId);
-  if(error){toast('Erreur lors de la suppression ❌');return;}
-  const p=participants.find(x=>x.name===playerName);
-  if(p){
-    const newMalus=Math.max(0,(p.sanction_malus||0)-ticketsLost);
-    await sb.from('participants').update({sanction_malus:newMalus}).eq('id',p.id);
-    p.sanction_malus=newMalus;
-  }
-  sanctionsData=sanctionsData.filter(s=>s.id!==sanctionId);
-  toast(`✅ Sanction supprimée pour ${playerName}`);
-  renderStatsSanctions();
-}
-
-function renderStatsSanctions(){
-  const el=document.getElementById('statsSanctionsContainer');
-  if(!el)return;
-  const byPlayer={};
-  sanctionsData.forEach(s=>{
-    if(!byPlayer[s.participant_name])byPlayer[s.participant_name]={name:s.participant_name,total:0,count:0,events:[]};
-    byPlayer[s.participant_name].total+=s.tickets_lost||0;
-    byPlayer[s.participant_name].count++;
-    byPlayer[s.participant_name].events.push(s);
-  });
-  const ranked=Object.values(byPlayer).sort((a,b)=>b.total-a.total);
-  const totalTicketsLost=ranked.reduce((s,p)=>s+p.total,0);
-  const mostSanctioned=ranked[0];
-  const cleanPlayers=participants.filter(p=>!byPlayer[p.name]).length;
-  el.innerHTML=`
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin:4px 0 18px">
-      ${[{val:sanctionsData.length,lbl:'Total sanctions',color:'#FF6B6B'},{val:totalTicketsLost,lbl:'Points de malus',color:'#FFB84D'},{val:cleanPlayers,lbl:'✅ Sans sanction',color:'#4FD1A5'},{val:mostSanctioned?mostSanctioned.name:'—',lbl:'Plus sanctionné',color:'var(--text)'}]
-        .map(({val,lbl,color})=>`<div class="stats-global-card"><div class="stats-global-val" style="color:${color};font-size:${String(val).length>8?'16px':'26px'}">${val}</div><div class="stats-global-lbl">${lbl}</div></div>`).join('')}
-    </div>
-    ${ranked.length===0?'<div style="padding:32px;text-align:center;color:var(--text3);font-size:13px">🎉 Aucune sanction enregistrée !</div>':''}
-    <div style="display:flex;flex-direction:column;gap:6px">
-      ${ranked.map((p,i)=>{
-        const lastDate=p.events.length?new Date(p.events.sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))[0].created_at).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}):'';
-        const maxTotal=ranked[0]?.total||1;
-        return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:12px 14px">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-            <span style="width:24px;text-align:center;font-size:12px;font-weight:800;color:var(--text3);font-family:var(--font-mono)">${i+1}</span>
-            <span style="flex:1;font-weight:700;font-size:13px;color:var(--text)">${p.name}</span>
-            <span style="font-size:11px;color:var(--text3)">${p.count} absence${p.count>1?'s':''}</span>
-            <span style="font-size:11px;color:var(--text3)">dernière : ${lastDate}</span>
-            <span style="font-size:13px;font-weight:800;color:#FF6B6B;font-family:var(--font-mono)">-${p.total} pts</span>
-          </div>
-          <div style="height:6px;background:var(--border);border-radius:99px;overflow:hidden;margin-bottom:8px">
-            <div style="height:100%;width:${Math.round(p.total/maxTotal*100)}%;background:linear-gradient(90deg,#FF6B6B,#FFB84D);border-radius:99px"></div>
-          </div>
-          <div style="display:flex;flex-wrap:wrap;gap:4px">
-            ${p.events.map(s=>{
-              const d=new Date(s.created_at).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'});
-              return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:2px 6px 2px 8px;background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.2);border-radius:99px;color:#FF6B6B">
-                <span>--${s.tickets_lost}⚡ ${s.reason?s.reason.slice(0,20):'Absence'} · ${d}</span>
-                ${isAdminOrStaff()?`<button onclick="deleteSanction(${s.id},'${p.name.replace(/'/g,"\\'")}',${s.tickets_lost})" title="Supprimer" style="background:none;border:none;cursor:pointer;padding:0 2px;color:#FF6B6B;opacity:.6;font-size:11px;line-height:1" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.6">✕</button>`:''}
-              </span>`;
-            }).join('')}
-          </div>
-        </div>`;
-      }).join('')}
     </div>`;
 }
 
@@ -4305,7 +4133,6 @@ async function propagateRename(id, oldName, newName){
   await Promise.all([
     sb.from('participants').update({name:newName}).eq('id',id),
     sb.from('weeks_history').update({participant_name:newName}).eq('participant_name',oldName),
-    sb.from('sanctions').update({participant_name:newName}).eq('participant_name',oldName),
     sb.from('historique').update({driver:newName}).eq('driver',oldName),
     sb.from('historique').update({vip:newName}).eq('vip',oldName),
     sb.from('weekly_draws').update({driver:newName}).eq('driver',oldName),
@@ -4847,46 +4674,11 @@ window.addEventListener('load',()=>{
 <div class="modal-overlay" id="absentModal" style="display:none" onclick="if(event.target===this)closeAbsentModal()">
   <div class="modal" style="max-width:420px">
     <div class="modal-header">
-      <span id="absentModalTitle">Signaler une absence</span>
+      <span id="absentModalTitle">Choisir le remplaçant</span>
       <button class="modal-close" onclick="closeAbsentModal()">×</button>
     </div>
     <div class="modal-body">
-
-      <!-- Étape 1 : sanction -->
-      <div id="absentStep1" class="sanction-step">
-        <div class="sanction-player-chip">
-          <span style="font-size:20px">⚠️</span>
-          <div>
-            <div class="sanction-player-name" id="absentPlayerName"></div>
-            <span class="sanction-role-tag" id="absentRoleTag"></span>
-          </div>
-        </div>
-        <div class="modal-section-title" style="margin-bottom:10px">Sanctionner ce joueur ?</div>
-        <div style="font-size:12px;color:var(--text3);margin-bottom:14px;line-height:1.6">
-          Enregistre une sanction pour absence non justifiée.
-        </div>
-        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">Tickets à retirer</div>
-        <div class="tickets-slider-wrap">
-          <span style="font-size:12px;color:var(--text3)">0</span>
-          <input class="tickets-slider" type="range" id="sanctionSlider" min="0" max="5" value="2" oninput="updateSanctionPreview()">
-          <span style="font-size:12px;color:var(--text3)">5</span>
-          <span class="tickets-val" id="sanctionTicketsVal">2</span>
-        </div>
-        <div class="sanction-preview" id="sanctionPreview"></div>
-        <input class="reason-inp" id="sanctionReason" type="text" placeholder="Raison (optionnel)…">
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-danger" style="flex:1;height:38px" onclick="absentNextStep()">⚡ Sanctionner</button>
-          <button class="btn" style="flex:1;height:38px" onclick="absentNextStep(true)">Passer sans sanction</button>
-        </div>
-      </div>
-
-      <!-- Étape 2 : choisir remplaçant -->
-      <div id="absentStep2" class="sanction-step" style="display:none">
-        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px">Choisir le remplaçant</div>
-        <div class="replace-list" id="replaceList"></div>
-        <button class="btn" style="width:100%;height:36px;margin-top:10px;font-size:12px" onclick="absentPrevStep()">← Retour</button>
-      </div>
-
+      <div class="replace-list" id="replaceList"></div>
     </div>
   </div>
 </div>
