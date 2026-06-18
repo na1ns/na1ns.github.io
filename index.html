@@ -2525,7 +2525,8 @@ function openAbsentModal(evt, drawId, role, playerName){
   document.getElementById('sanctionSlider').value = 2;
   document.getElementById('sanctionReason').value = '';
   updateSanctionPreview();
-  showAbsentStep(1);
+  renderReplaceList();
+  showAbsentStep(2);
 
   // Positionner la bulle près du bouton cliqué
   const modal = document.getElementById('absentModal');
