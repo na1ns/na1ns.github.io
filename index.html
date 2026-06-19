@@ -1600,6 +1600,15 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
             <button class="planning-copy-btn" onclick="copyPlanningText()">📋 Copier</button>
             <button class="planning-copy-btn" id="showWeeklyDrawsBtn" onclick="showCurrentWeeklyDraws()" style="display:none">✏️ Modifier</button>
             <button class="planning-copy-btn" id="doWeeklyDrawsBtn" onclick="archiveWeek()" style="display:none;background:rgba(124,159,255,0.1);color:var(--blue);border-color:rgba(124,159,255,0.25)">🎲 Procéder au tirage</button>
+            <div id="priorityToggleWrap" style="display:none;align-items:center;gap:8px;padding:0 10px;background:rgba(255,184,77,0.06);border:1px solid rgba(255,184,77,0.2);border-radius:var(--radius-lg);height:34px">
+              <button id="priorityToggleBtn" onclick="togglePriorityMode()" title="Activer la priorité staff" style="background:none;border:none;cursor:pointer;font-size:18px;line-height:1;padding:0" >⭐</button>
+              <span id="priorityToggleLabel" style="font-size:11px;font-weight:700;color:var(--text3)">Priorité staff OFF</span>
+              <select id="priorityMultSelect" onchange="setPriorityMult(this.value)" style="display:none;height:24px;padding:0 4px;border:1px solid rgba(255,184,77,0.3);border-radius:6px;background:var(--surface);color:var(--amber);font-size:11px;font-weight:700;cursor:pointer">
+                <option value="1.5">×1.5</option>
+                <option value="2" selected>×2</option>
+                <option value="3">×3</option>
+              </select>
+            </div>
             <span class="section-toggle collapsed" id="planningToggle" onclick="toggleSection('planningBody','planningToggle')">▾</span>
           </div>
         </div>
@@ -2061,6 +2070,67 @@ function applyPermissions(){
   }
 }
 
+async function loadPriorityConfig(){
+  if(!sb)return;
+  try{
+    const{data}=await sb.from('app_config').select('value').eq('key','priority_config').maybeSingle();
+    if(data&&data.value){
+      priorityModeActive = data.value.active||false;
+      priorityMultiplier = data.value.multiplier||2;
+      updatePriorityUI();
+    }
+  }catch(e){}
+}
+
+async function savePriorityConfig(){
+  if(!sb)return;
+  await sb.from('app_config').upsert({key:'priority_config',value:{active:priorityModeActive,multiplier:priorityMultiplier},updated_at:new Date().toISOString()});
+}
+
+function togglePriorityMode(){
+  priorityModeActive=!priorityModeActive;
+  updatePriorityUI();
+  savePriorityConfig();
+}
+
+function setPriorityMult(val){
+  priorityMultiplier=parseFloat(val);
+  savePriorityConfig();
+  if(priorityModeActive) toast(`Multiplicateur staff : ×${priorityMultiplier}`);
+}
+
+function updatePriorityUI(){
+  const btn=document.getElementById('priorityToggleBtn');
+  const lbl=document.getElementById('priorityToggleLabel');
+  const sel=document.getElementById('priorityMultSelect');
+  const wrap=document.getElementById('priorityToggleWrap');
+  if(!btn)return;
+  if(priorityModeActive){
+    btn.style.opacity='1';
+    lbl.textContent='Priorité staff ON';
+    lbl.style.color='var(--amber)';
+    if(sel){sel.style.display='';sel.value=String(priorityMultiplier);}
+    if(wrap)wrap.style.background='rgba(255,184,77,0.12)';
+    if(wrap)wrap.style.borderColor='rgba(255,184,77,0.35)';
+  }else{
+    btn.style.opacity='0.4';
+    lbl.textContent='Priorité staff OFF';
+    lbl.style.color='var(--text3)';
+    if(sel)sel.style.display='none';
+    if(wrap)wrap.style.background='rgba(255,184,77,0.04)';
+    if(wrap)wrap.style.borderColor='rgba(255,184,77,0.15)';
+  }
+}
+
+async function togglePriority(playerId, checkbox){
+  if(!isAdmin())return;
+  const val=checkbox.checked;
+  await sb.from('participants').update({is_priority:val}).eq('id',playerId);
+  const p=participants.find(x=>x.id===playerId);
+  if(p) p.is_priority=val;
+  toast(val?'⭐ Priorité staff activée':'Priorité retirée');
+}
+
 async function loadPermConfig(){
   if(!sb)return;
   try{
@@ -2487,6 +2557,8 @@ function copyPollLink(){
 
 
 let sanctionDrawId = null, sanctionRole = null, sanctionPlayerName = null;
+let priorityModeActive = false;  // toggle priorité staff
+let priorityMultiplier = 2;      // multiplicateur (1.5 / 2 / 3)
 
 function openAbsentModal(evt, drawId, role, playerName){
   sanctionDrawId = drawId;
@@ -2708,8 +2780,10 @@ function showApp(){
   const archiveBtn=document.getElementById('archiveWeekParticipantsBtn');
   if(archiveBtn)archiveBtn.style.display=isAdminOrStaff()?'inline-flex':'none';
   const repairBtn=document.getElementById('btnRepairHistory');if(repairBtn)repairBtn.style.display=isAdmin()?'':'none';
+  const priorityWrap=document.getElementById('priorityToggleWrap');if(priorityWrap)priorityWrap.style.display=isAdmin()?'flex':'none';
   if(isAdmin())loadUsers();
   loadPermConfig();
+  loadPriorityConfig();
   loadAll();
   subscribeRT();
   loadWeeklyDraws();
@@ -3236,13 +3310,17 @@ async function doWeeklyDraws(){
   const totalVips=pool.reduce((s,p)=>s+(p.vip_count||0),0)||1;
 
   // Fonction de sélection équitable par dette
+  // Si priorityModeActive : les joueurs is_priority ont un score divisé par le multiplicateur
+  // → ils semblent avoir moins de tirages → priorité plus élevée
   function pickByDebt(candidates, countKey, totalCount){
-    // Score = tirages_joueur / total_guilde → favorise ceux sous-représentés
-    const scores=candidates.map(p=>({p, score:(p[countKey]||0)/totalCount}));
+    const scores=candidates.map(p=>({
+      p,
+      score: priorityModeActive && p.is_priority
+        ? (p[countKey]||0) / totalCount / priorityMultiplier   // score réduit = plus prioritaire
+        : (p[countKey]||0) / totalCount
+    }));
     const minScore=Math.min(...scores.map(s=>s.score));
-    // Garder ceux avec le score le plus bas (± tolérance)
     const prioritized=scores.filter(s=>s.score<=minScore+0.01).map(s=>s.p);
-    // Parmi eux, tirage aléatoire simple et équitable
     return prioritized[Math.floor(Math.random()*prioritized.length)];
   }
 
@@ -4043,6 +4121,7 @@ function render(){
             </div>
             <div class="p-card-badges">
               ${elig?'<span class="p-card-elig-icon">🏆</span>':''}
+              ${isAdmin()&&p.is_priority?'<span title="Priorité staff" style="font-size:14px">⭐</span>':''}
               <button class="del-btn" onclick="removeName(${p.id})">×</button>
             </div>
           </div>
@@ -4062,9 +4141,9 @@ function render(){
     }
   }else{
     head.style.display='';
-    const cols=`${showPres?'36px ':''}32px minmax(120px,1fr) 85px repeat(5,28px) 90px`;
+    const cols=`${showPres?'36px ':''}32px minmax(120px,1fr) 85px repeat(5,28px) 90px${isAdmin()?' 32px':''}`;
     head.style.gridTemplateColumns=cols;
-    head.innerHTML=`${showPres?'<span style="text-align:center">✓</span>':''}<span style="font-size:9px;text-align:center">#</span><span class="h-name">Nom</span><span style="font-size:9px;color:var(--cyan);text-align:center">Puiss.</span>${DAYS.map(d=>`<span style="font-size:9px;text-align:center">${d}</span>`).join('')}<span style="font-size:9px;text-align:center">Élig.</span>`;
+    head.innerHTML=`${showPres?'<span style="text-align:center">✓</span>':''}<span style="font-size:9px;text-align:center">#</span><span class="h-name">Nom</span><span style="font-size:9px;color:var(--cyan);text-align:center">Puiss.</span>${DAYS.map(d=>`<span style="font-size:9px;text-align:center">${d}</span>`).join('')}<span style="font-size:9px;text-align:center">Élig.</span>${isAdmin()?'<span title="Priorité staff" style="font-size:9px;text-align:center">⭐</span>':''}`;
     if(!filtered.length){
       body.innerHTML=`<div style="padding:16px;font-size:13px;color:var(--text3);font-style:italic">${searchFilter?'Aucun résultat pour "'+searchFilter+'"':'Aucun participant.'}</div>`;
     }else{
