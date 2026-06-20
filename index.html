@@ -1604,9 +1604,9 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
               <button id="priorityToggleBtn" onclick="togglePriorityMode()" title="Activer la priorité staff" style="background:none;border:none;cursor:pointer;font-size:18px;line-height:1;padding:0" >⭐</button>
               <span id="priorityToggleLabel" style="font-size:11px;font-weight:700;color:var(--text3)">Priorité staff OFF</span>
               <select id="priorityMultSelect" onchange="setPriorityMult(this.value)" style="display:none;height:24px;padding:0 4px;border:1px solid rgba(255,184,77,0.3);border-radius:6px;background:var(--surface);color:var(--amber);font-size:11px;font-weight:700;cursor:pointer">
-                <option value="1.5">×1.5</option>
-                <option value="2" selected>×2</option>
-                <option value="3">×3</option>
+                <option value="1.5">Faible</option>
+                <option value="2" selected>Moyen</option>
+                <option value="3">Élevé</option>
               </select>
             </div>
             <span class="section-toggle collapsed" id="planningToggle" onclick="toggleSection('planningBody','planningToggle')">▾</span>
@@ -2096,7 +2096,8 @@ function togglePriorityMode(){
 function setPriorityMult(val){
   priorityMultiplier=parseFloat(val);
   savePriorityConfig();
-  if(priorityModeActive) toast(`Multiplicateur staff : ×${priorityMultiplier}`);
+  const labels={1.5:'Faible',2:'Moyen',3:'Élevé'};
+  if(priorityModeActive) toast(`Priorité staff : ${labels[priorityMultiplier]||'Moyen'}`);
 }
 
 function updatePriorityUI(){
