@@ -4160,6 +4160,7 @@ function render(){
           <div class="power-cell"><span class="power-disp${!p.power_t1?' empty-val':''}" onclick="startEditPower(${realIdx})">${p.power_t1?Number(p.power_t1).toLocaleString('fr-FR'):'—'}</span><input class="power-inp" type="text" ondragstart="event.stopPropagation()" onblur="commitPower(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
           <div style="display:contents">${coffresBtns}</div>
           <div style="display:flex;align-items:center;justify-content:center;gap:4px"><span class="elig-btn ${elig?'yes':'no'}">${elig?'✓':'✗'}</span><button class="del-btn" onclick="removeName(${p.id})">×</button></div>
+          ${isAdmin()?`<div style="display:flex;align-items:center;justify-content:center"><input type="checkbox" title="Priorité staff ⭐" ${p.is_priority?'checked':''} onchange="togglePriority(${p.id},this)" ondragstart="event.stopPropagation()" style="width:15px;height:15px;accent-color:var(--amber);cursor:pointer"/></div>`:''}
         </div>`;
       }).join('');
     }
