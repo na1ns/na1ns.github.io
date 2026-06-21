@@ -3341,11 +3341,20 @@ async function doWeeklyDraws(){
     const driver=pickByDebt(dPool,'driver_count',localDriverTotal);
 
     // ── Tirage du VIP ──
-    // Priorité 1 : pas encore tiré cette semaine, hors chauffeur du jour
-    let vPool=pool.filter(p=>p.id!==driver.id&&!usedAny.has(p.id));
+    // Si priorité staff active et que le chauffeur est staff :
+    // exclure les autres membres staff du pool VIP (max 1 staff/jour)
+    const driverIsStaff = priorityModeActive && driver.is_priority;
+    const excludeStaff  = p => driverIsStaff && p.is_priority;
+
+    // Priorité 1 : pas encore tiré cette semaine, hors chauffeur du jour (+ règle staff)
+    let vPool=pool.filter(p=>p.id!==driver.id&&!usedAny.has(p.id)&&!excludeStaff(p));
+    // Si pas assez sans la contrainte staff, on la retire temporairement
+    if(vPool.length<1) vPool=pool.filter(p=>p.id!==driver.id&&!usedAny.has(p.id));
     // Priorité 2 : pas encore VIP cette semaine
+    if(vPool.length<1) vPool=pool.filter(p=>p.id!==driver.id&&!usedVips.has(p.id)&&!excludeStaff(p));
     if(vPool.length<1) vPool=pool.filter(p=>p.id!==driver.id&&!usedVips.has(p.id));
     // Priorité 3 : tout le pool sauf chauffeur du jour
+    if(vPool.length<1) vPool=pool.filter(p=>p.id!==driver.id&&!excludeStaff(p));
     if(vPool.length<1) vPool=pool.filter(p=>p.id!==driver.id);
     const vip=pickByDebt(vPool,'vip_count',localVipTotal);
 
