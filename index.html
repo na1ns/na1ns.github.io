@@ -1709,6 +1709,7 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
             <button class="stats-view-tab active" id="svtCards" onclick="setStatsView('cards')">👤 Joueurs</button>
             <button class="stats-view-tab" id="svtLeaderboard" onclick="setStatsView('leaderboard')">📋 Classement</button>
             <button class="stats-view-tab" id="svtReliability" onclick="setStatsView('reliability')">🎯 Fiabilité</button>
+            <button class="stats-view-tab" id="svtGraphiques" onclick="setStatsView('graphiques')">📊 Graphiques</button>
           </div>
           <div id="statsViewPodium" style="display:none">
             <div id="statsPodium"></div>
@@ -1731,6 +1732,9 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
           </div>
           <div id="statsViewLeaderboard" style="display:none">
             <div id="statsLeaderboard"></div>
+          </div>
+          <div id="statsViewGraphiques" style="display:none">
+            <div id="statsGraphiquesContainer"></div>
           </div>
           <div id="statsViewReliability" style="display:none">
             <div id="statsReliabilityContainer"></div>
@@ -1776,6 +1780,7 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
               <div class="ev-nb-btns">
                 <button class="ev-nb-btn active" id="evNb1" onclick="setNbTeams(1)">1 équipe</button>
                 <button class="ev-nb-btn" id="evNb2" onclick="setNbTeams(2)">2 équipes</button>
+                <button class="ev-nb-btn" id="evNbAsym" onclick="setNbTeams('asym')">⚡ Asymétrique</button>
               </div>
             </div>
             <div class="ev-config-block" style="margin-left:auto">
@@ -1826,6 +1831,13 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
           <div id="evPlayersList"></div>
           <div style="display:flex;gap:10px;align-items:center;margin:1rem 0;flex-wrap:wrap">
             <button class="btn btn-primary" onclick="balanceTeams()">⚖️ Équilibrer et sauvegarder</button>
+            <div id="asymControls" style="display:none;align-items:center;gap:8px;padding:6px 12px;background:rgba(255,184,77,0.06);border:1px solid rgba(255,184,77,0.2);border-radius:var(--radius-lg)">
+              <span style="font-size:11px;font-weight:700;color:var(--amber)">Équipe A :</span>
+              <input type="range" id="asymSlider" min="15" max="35" step="1" value="25"
+                oninput="evAsymSizeA=parseInt(this.value);document.getElementById('asymSizeLabel').textContent=this.value+' joueurs'"
+                style="width:100px;accent-color:var(--amber)">
+              <span id="asymSizeLabel" style="font-size:12px;font-weight:700;color:var(--amber);min-width:60px">25 joueurs</span>
+            </div>
             <button class="btn" onclick="resetTeams()">↺ Réinitialiser les rôles et équipes</button>
           </div>
           <div id="evTeamsResult"></div>
@@ -1997,6 +2009,8 @@ let presentMode=false,presentIds=new Set();
 let searchFilter='',sortAlpha=false,statSort='name';
 let currentUser=null;
 let evNbTeams=1,evRoles={},evTeams=null,evDragSrc=null,evTeamsLoaded=false;
+let evAsymMode=false;   // mode asymétrique (grosse équipe A + petite équipe B)
+let evAsymSizeA=25;     // nombre de joueurs dans la grosse équipe A
 let weeklyDrawsData=[];
 let drawBuffer=null; // Mémoire tampon 48h post-archivage (coffres_snapshot de la semaine passée)
 const DAYS=['Lu','Ma','Me','Je','Ve'];
@@ -3568,13 +3582,14 @@ function setStatSort(key,btn){
 
 function setStatsView(view){
   currentStatsView=view;
-  ['podium','cards','leaderboard','reliability'].forEach(v=>{
+  ['podium','cards','leaderboard','reliability','graphiques'].forEach(v=>{
     const el=document.getElementById('statsView'+v.charAt(0).toUpperCase()+v.slice(1));
     const tab=document.getElementById('svt'+v.charAt(0).toUpperCase()+v.slice(1));
     if(el)el.style.display=v===view?'':'none';
     if(tab)tab.classList.toggle('active',v===view);
   });
   if(view==='reliability') renderStatsReliability();
+  if(view==='graphiques')  renderStatsGraphiques();
 }
 
 function onStatsSearch(inp){
@@ -4060,6 +4075,511 @@ function renderStatsReliability(){
     </div>`;
 }
 
+
+/* ══════════════════════════════════════════════════════
+   CONSTRUCTEUR DE GRAPHIQUES — Onglet Graphiques
+   ══════════════════════════════════════════════════════ */
+
+// ── Définition des axes disponibles ──────────────────────────────────────
+const CHART_AXES = {
+  x: [
+    {key:'players',   label:'Joueurs',          desc:'Un point par joueur'},
+    {key:'weeks',     label:'Semaines',         desc:'Évolution semaine par semaine'},
+  ],
+  y: [
+    {key:'driver_count',  label:'Tirages Chauffeur',  group:'Tirages'},
+    {key:'vip_count',     label:'Tirages VIP',         group:'Tirages'},
+    {key:'total_draws',   label:'Total Tirages',       group:'Tirages'},
+    {key:'coffres_rate',  label:'Taux Coffres %',      group:'Coffres'},
+    {key:'reliability',   label:'Score Fiabilité %',   group:'Fiabilité'},
+    {key:'power_t1',      label:'Puissance T1',        group:'Puissance'},
+    {key:'trend',         label:'Tendance (semaine)',  group:'Fiabilité'},
+  ],
+  yWeeks: [
+    {key:'coffres_rate',  label:'Taux Coffres guilde %', group:'Coffres'},
+    {key:'power_total',   label:'Puissance totale',       group:'Puissance'},
+    {key:'validated_count',label:'Joueurs validés',       group:'Coffres'},
+  ]
+};
+
+const CHART_TYPES = [
+  {key:'bar',    label:'Barres',  icon:'▬'},
+  {key:'hbar',   label:'Barres horizontales', icon:'▭'},
+  {key:'line',   label:'Courbe',  icon:'📈'},
+  {key:'donut',  label:'Donut',   icon:'⭕'},
+];
+
+const CHART_FILTERS = [
+  {key:'all',      label:'Tous les joueurs'},
+  {key:'staff',    label:'Staff uniquement (⭐)'},
+  {key:'members',  label:'Membres uniquement'},
+  {key:'eligible', label:'Éligibles uniquement'},
+];
+
+const CHART_COLORS = [
+  '#7C9FFF','#4FD1A5','#FFB84D','#FF6B6B','#B78AFF',
+  '#4FD1E8','#FF9F7A','#A8E6CF','#FFD3A3','#C3A6FF'
+];
+
+let _chartBuilderState = {
+  xAxis:    'players',
+  yAxis:    'driver_count',
+  chartType:'bar',
+  filter:   'all',
+  sortBy:   'desc',
+  topN:     0,       // 0 = tous, sinon limite N
+  groupSim: false,   // regrouper les valeurs similaires
+  simPct:   10,      // seuil de similitude en %
+  chartInst: null,
+};
+
+// ── Données calculées selon les sélections ────────────────────────────────
+function getChartData(){
+  const s = _chartBuilderState;
+
+  if(s.xAxis === 'players'){
+    // Filtrer les joueurs selon le filtre
+    let pts = [...participants];
+    if(s.filter === 'staff')    pts = pts.filter(p=>p.is_priority);
+    if(s.filter === 'members')  pts = pts.filter(p=>!p.is_priority);
+    if(s.filter === 'eligible') pts = pts.filter(p=>isEligible(p));
+
+    // Calculer la valeur Y pour chaque joueur
+    pts = pts.map(p=>{
+      let val = null;
+      if(s.yAxis === 'total_draws')   val = (p.driver_count||0)+(p.vip_count||0);
+      else if(s.yAxis === 'coffres_rate'){
+        const w = getPlayerWeeks(p);
+        val = w.length ? Math.round(w.filter(x=>x.validated).length/w.length*100) : null;
+      }
+      else if(s.yAxis === 'reliability') val = computeReliabilityScore(p);
+      else if(s.yAxis === 'trend'){
+        const d = computeReliabilityDetail(p);
+        val = d ? (d.trendLabel==='↑ En progression'?1:d.trendLabel==='↓ En régression'?-1:0) : null;
+      }
+      else val = p[s.yAxis] || 0;
+      return {label: p.name, value: val, isPriority: p.is_priority};
+    }).filter(d=>d.value!==null);
+
+    // Trier
+    if(s.sortBy==='desc')  pts.sort((a,b)=>b.value-a.value);
+    if(s.sortBy==='asc')   pts.sort((a,b)=>a.value-b.value);
+    if(s.sortBy==='name')  pts.sort((a,b)=>a.label.localeCompare(b.label));
+    if(s.sortBy==='power'){
+      // Trier par groupe de puissance T1 puis par valeur dans chaque groupe
+      // Groupes : < 1M / 1M-2M / 2M-5M / 5M-10M / > 10M
+      const powerGroup = p => {
+        const pow = (participants.find(x=>x.name===p.label)||{}).power_t1 || 0;
+        if(pow < 1e6)  return 0;
+        if(pow < 2e6)  return 1;
+        if(pow < 5e6)  return 2;
+        if(pow < 10e6) return 3;
+        return 4;
+      };
+      pts.sort((a,b)=> powerGroup(b)-powerGroup(a) || b.value-a.value);
+    }
+
+    // Limiter au top N
+    if(s.topN > 0) pts = pts.slice(0, s.topN);
+
+    // Regrouper les valeurs similaires
+    if(s.groupSim && pts.length > 3){
+      const threshold = s.simPct / 100;
+      const maxVal = Math.max(...pts.map(p=>p.value), 1);
+      const grouped = [];
+      let bucket = [];
+      pts.forEach((p, i) => {
+        if(bucket.length === 0){
+          bucket.push(p);
+        } else {
+          const diff = Math.abs(p.value - bucket[0].value) / maxVal;
+          if(diff <= threshold) {
+            bucket.push(p);
+          } else {
+            if(bucket.length >= 3){
+              const avg = Math.round(bucket.reduce((s,x)=>s+x.value,0)/bucket.length);
+              grouped.push({label:`${bucket.length} joueurs (~${avg})`, value:avg, isPriority:false, isGroup:true});
+            } else {
+              grouped.push(...bucket);
+            }
+            bucket = [p];
+          }
+        }
+      });
+      if(bucket.length >= 3){
+        const avg = Math.round(bucket.reduce((s,x)=>s+x.value,0)/bucket.length);
+        grouped.push({label:`${bucket.length} joueurs (~${avg})`, value:avg, isPriority:false, isGroup:true});
+      } else {
+        grouped.push(...bucket);
+      }
+      pts = grouped;
+    }
+
+    // Calcul des groupes de puissance pour séparation visuelle
+    const PWR_LABELS = ['< 1M','1-2M','2-5M','5-10M','> 10M'];
+    const getPowerGroup = name => {
+      const pow = (participants.find(x=>x.name===name)||{}).power_t1||0;
+      if(pow<1e6) return 0; if(pow<2e6) return 1;
+      if(pow<5e6) return 2; if(pow<10e6) return 3; return 4;
+    };
+    const powerGroups = s.sortBy==='power' ? pts.map(d=>getPowerGroup(d.label)) : null;
+
+    return {
+      labels:      pts.map(d=>d.label),
+      values:      pts.map(d=>d.value),
+      colors:      pts.map(d=>d.isGroup?'rgba(124,159,255,0.45)':d.isPriority?'#FFB84D':CHART_COLORS[0]),
+      powerGroups, // null si tri non par puissance
+      PWR_LABELS,
+    };
+  }
+
+  if(s.xAxis === 'weeks'){
+    // Regrouper weeksHistory par semaine (date d'archivage tronquée)
+    const weekSet = [...new Set(weeksHistory.map(w=>w.archived_at?w.archived_at.slice(0,10):null).filter(Boolean))].sort();
+    const vals = weekSet.map(dateStr=>{
+      const ws = weeksHistory.filter(w=>w.archived_at&&w.archived_at.startsWith(dateStr));
+      if(!ws.length) return null;
+      if(s.yAxis==='coffres_rate') return Math.round(ws.filter(w=>w.validated).length/ws.length*100);
+      if(s.yAxis==='power_total')  return ws.reduce((s,w)=>s+(w.power_snapshot||0),0);
+      if(s.yAxis==='validated_count') return ws.filter(w=>w.validated).length;
+      return null;
+    }).filter(Boolean);
+    const labels = weekSet.map(d=>d.slice(5)); // MM-DD
+    return {labels, values: vals, colors: Array(vals.length).fill(CHART_COLORS[0])};
+  }
+  return {labels:[], values:[], colors:[]};
+}
+
+// ── Rendu principal ───────────────────────────────────────────────────────
+function renderStatsGraphiques(){
+  const el = document.getElementById('statsGraphiquesContainer');
+  if(!el) return;
+
+  const isDark = !document.body.classList.contains('light');
+  const TEXT  = isDark?'rgba(255,255,255,0.8)':'rgba(0,0,0,0.75)';
+  const TEXT2 = isDark?'rgba(255,255,255,0.35)':'rgba(0,0,0,0.3)';
+  const GRID  = isDark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.07)';
+  const BG    = isDark?'#0f111a':'#ffffff';
+
+  // Axes Y disponibles selon X
+  const yAxes = _chartBuilderState.xAxis === 'weeks'
+    ? CHART_AXES.yWeeks
+    : CHART_AXES.y;
+
+  // Si l'axe Y sélectionné n'est pas dans la liste, reset
+  if(!yAxes.find(a=>a.key===_chartBuilderState.yAxis)){
+    _chartBuilderState.yAxis = yAxes[0].key;
+  }
+
+  // Grouper les axes Y
+  const yGroups = {};
+  yAxes.forEach(a=>{ if(!yGroups[a.group]) yGroups[a.group]=[]; yGroups[a.group].push(a); });
+
+  // Types compatibles avec l'axe X
+  const compatTypes = _chartBuilderState.xAxis === 'weeks'
+    ? CHART_TYPES.filter(t=>['bar','line'].includes(t.key))
+    : CHART_TYPES;
+
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:260px 1fr;gap:16px;align-items:start">
+
+      <!-- Panneau de configuration -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:16px;display:flex;flex-direction:column;gap:14px;position:sticky;top:8px">
+
+        <!-- Type de graphique -->
+        <div>
+          <div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">Type</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+            ${compatTypes.map(t=>`
+              <button onclick="chartBuilderSet('chartType','${t.key}')" style="padding:6px 4px;border:1px solid ${_chartBuilderState.chartType===t.key?'var(--blue)':'var(--border)'};border-radius:var(--radius-lg);background:${_chartBuilderState.chartType===t.key?'rgba(124,159,255,0.12)':'var(--surface2)'};color:${_chartBuilderState.chartType===t.key?'var(--blue)':'var(--text2)'};font-size:11px;font-weight:700;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center;gap:4px">
+                <span style="font-size:14px">${t.icon}</span>${t.label}
+              </button>`).join('')}
+          </div>
+        </div>
+
+        <!-- Axe X -->
+        <div>
+          <div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">Axe X</div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            ${CHART_AXES.x.map(a=>`
+              <button onclick="chartBuilderSet('xAxis','${a.key}')" style="padding:7px 10px;border:1px solid ${_chartBuilderState.xAxis===a.key?'var(--blue)':'var(--border)'};border-radius:var(--radius-lg);background:${_chartBuilderState.xAxis===a.key?'rgba(124,159,255,0.12)':'var(--surface2)'};color:${_chartBuilderState.xAxis===a.key?'var(--blue)':'var(--text2)'};font-size:12px;font-weight:600;cursor:pointer;text-align:left;transition:all .15s">
+                ${a.label} <span style="font-size:10px;color:var(--text3);font-weight:400">${a.desc}</span>
+              </button>`).join('')}
+          </div>
+        </div>
+
+        <!-- Axe Y -->
+        <div>
+          <div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">Valeur Y</div>
+          ${Object.entries(yGroups).map(([grp, axes])=>`
+            <div style="font-size:9px;color:var(--text3);margin:6px 0 3px;font-weight:700">${grp}</div>
+            <div style="display:flex;flex-direction:column;gap:3px">
+              ${axes.map(a=>`
+                <button onclick="chartBuilderSet('yAxis','${a.key}')" style="padding:6px 10px;border:1px solid ${_chartBuilderState.yAxis===a.key?'rgba(124,159,255,0.4)':'var(--border)'};border-radius:var(--radius-lg);background:${_chartBuilderState.yAxis===a.key?'rgba(124,159,255,0.12)':'transparent'};color:${_chartBuilderState.yAxis===a.key?'var(--blue)':'var(--text2)'};font-size:11px;font-weight:600;cursor:pointer;text-align:left;transition:all .15s">
+                  ${a.label}
+                </button>`).join('')}
+            </div>`).join('')}
+        </div>
+
+        ${_chartBuilderState.xAxis==='players'?`
+        <!-- Filtre joueurs -->
+        <div>
+          <div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">Filtre</div>
+          <select onchange="chartBuilderSet('filter',this.value)" style="width:100%;height:32px;padding:0 8px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-lg);color:var(--text2);font-size:12px">
+            ${CHART_FILTERS.map(f=>`<option value="${f.key}" ${_chartBuilderState.filter===f.key?'selected':''}>${f.label}</option>`).join('')}
+          </select>
+        </div>
+
+        <!-- Tri -->
+        <div>
+          <div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">Tri</div>
+          <select onchange="chartBuilderSet('sortBy',this.value)" style="width:100%;height:32px;padding:0 8px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-lg);color:var(--text2);font-size:12px">
+            <option value="desc"  ${_chartBuilderState.sortBy==='desc' ?'selected':''}>Valeur décroissante</option>
+            <option value="asc"   ${_chartBuilderState.sortBy==='asc'  ?'selected':''}>Valeur croissante</option>
+            <option value="name"  ${_chartBuilderState.sortBy==='name' ?'selected':''}>Alphabétique</option>
+            <option value="power" ${_chartBuilderState.sortBy==='power'?'selected':''}>Par groupe de puissance</option>
+          </select>
+        </div>
+
+        <!-- Limite d'affichage -->
+        <div>
+          <div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">Afficher</div>
+          <select onchange="chartBuilderSet('topN',parseInt(this.value))" style="width:100%;height:32px;padding:0 8px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-lg);color:var(--text2);font-size:12px">
+            <option value="0"  ${_chartBuilderState.topN===0 ?'selected':''}>Tous les joueurs</option>
+            <option value="5"  ${_chartBuilderState.topN===5 ?'selected':''}>Top 5</option>
+            <option value="10" ${_chartBuilderState.topN===10?'selected':''}>Top 10</option>
+            <option value="15" ${_chartBuilderState.topN===15?'selected':''}>Top 15</option>
+            <option value="20" ${_chartBuilderState.topN===20?'selected':''}>Top 20</option>
+          </select>
+        </div>
+
+        <!-- Regroupement -->
+        <div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.05em;text-transform:uppercase">Regrouper similaires</div>
+            <button onclick="chartBuilderSet('groupSim',!_chartBuilderState.groupSim)" style="width:38px;height:20px;border-radius:99px;border:none;cursor:pointer;transition:background .2s;background:${_chartBuilderState.groupSim?'var(--blue)':'var(--border2)'}">
+              <span style="display:block;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .2s;transform:translateX(${_chartBuilderState.groupSim?'18px':'2px'})"></span>
+            </button>
+          </div>
+          ${_chartBuilderState.groupSim?`<div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:10px;color:var(--text3)">Seuil</span>
+            <input type="range" min="5" max="30" step="5" value="${_chartBuilderState.simPct}"
+              oninput="chartBuilderSet('simPct',parseInt(this.value))"
+              style="flex:1;accent-color:var(--blue)">
+            <span style="font-size:11px;font-weight:700;color:var(--blue);width:30px">${_chartBuilderState.simPct}%</span>
+          </div>`:'<div style="font-size:10px;color:var(--text3);line-height:1.5">Fusionne les joueurs avec des valeurs proches en un seul groupe.</div>'}
+        </div>`:''}
+
+      </div>
+
+      <!-- Zone graphique -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:20px;min-height:400px">
+        <div id="chartBuilderTitle" style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:16px"></div>
+        <canvas id="chartBuilderCanvas" height="360" style="width:100%;display:block"></canvas>
+        <div id="chartBuilderEmpty" style="display:none;text-align:center;padding:60px 20px;color:var(--text3);font-size:13px">Aucune donnée disponible pour cette sélection.</div>
+      </div>
+    </div>`;
+
+  // Dessiner le graphique
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    drawBuilderChart(TEXT, TEXT2, GRID, BG);
+  }));
+}
+
+function chartBuilderSet(key, val){
+  _chartBuilderState[key] = val;
+  renderStatsGraphiques();
+}
+
+function drawBuilderChart(TEXT, TEXT2, GRID, BG){
+  const s = _chartBuilderState;
+  const canvas = document.getElementById('chartBuilderCanvas');
+  const titleEl = document.getElementById('chartBuilderTitle');
+  const emptyEl = document.getElementById('chartBuilderEmpty');
+  if(!canvas) return;
+
+  const data = getChartData();
+  const yDef = [...CHART_AXES.y, ...CHART_AXES.yWeeks].find(a=>a.key===s.yAxis);
+  const xDef = CHART_AXES.x.find(a=>a.key===s.xAxis);
+  if(titleEl) titleEl.textContent = `${yDef?.label||''} par ${xDef?.label||''}`;
+
+  if(!data.values.length){
+    canvas.style.display='none';
+    if(emptyEl) emptyEl.style.display='';
+    return;
+  }
+  canvas.style.display='';
+  if(emptyEl) emptyEl.style.display='none';
+
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth||600;
+  const H = canvas.height;
+  canvas.width = W;
+  ctx.clearRect(0,0,W,H);
+
+  if(s.chartType==='bar')   drawChartBar(ctx,data,W,H,TEXT,TEXT2,GRID,false);
+  if(s.chartType==='hbar')  drawChartHBar(ctx,data,W,H,TEXT,TEXT2,GRID);
+  if(s.chartType==='line')  drawChartLine(ctx,data,W,H,TEXT,TEXT2,GRID);
+  if(s.chartType==='donut') drawChartDonut(ctx,data,W,H,TEXT,BG);
+}
+
+// ── Rendu Barres verticales ───────────────────────────────────────────────
+function drawChartBar(ctx,data,W,H,TEXT,TEXT2,GRID){
+  const PAD={top:20,right:16,bottom:64,left:42};
+  const gW=W-PAD.left-PAD.right, gH=H-PAD.top-PAD.bottom;
+  const maxV=Math.max(...data.values,1);
+  const groupW=gW/data.labels.length;
+  const barW=Math.min(groupW*0.65,36);
+
+  // Grilles
+  for(let i=0;i<=4;i++){
+    const v=Math.round(maxV*i/4);
+    const y=PAD.top+gH-gH*i/4;
+    ctx.beginPath();ctx.strokeStyle=GRID;ctx.lineWidth=1;
+    ctx.moveTo(PAD.left,y);ctx.lineTo(PAD.left+gW,y);ctx.stroke();
+    ctx.font='10px sans-serif';ctx.fillStyle=TEXT2;ctx.textAlign='right';
+    ctx.fillText(v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v,PAD.left-4,y+3);
+  }
+
+  // Barres
+  data.labels.forEach((lbl,i)=>{
+    const val=data.values[i];
+    const bh=Math.max(2,(val/maxV)*gH);
+    const x=PAD.left+i*groupW+groupW/2-barW/2;
+    const y=PAD.top+gH-bh;
+    const r=Math.min(4,barW/2);
+    const color=data.colors[i]||CHART_COLORS[i%CHART_COLORS.length];
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);ctx.lineTo(x+barW-r,y);
+    ctx.quadraticCurveTo(x+barW,y,x+barW,y+r);
+    ctx.lineTo(x+barW,y+bh);ctx.lineTo(x,y+bh);
+    ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);
+    ctx.closePath();ctx.fillStyle=color;ctx.fill();
+    // Label
+    ctx.save();ctx.translate(x+barW/2,PAD.top+gH+8);ctx.rotate(-Math.PI/4);
+    ctx.font='10px sans-serif';ctx.fillStyle=TEXT;ctx.textAlign='right';
+    ctx.fillText(lbl.length>12?lbl.slice(0,11)+'…':lbl,0,0);ctx.restore();
+    // Valeur
+    ctx.font='bold 9px sans-serif';ctx.fillStyle=TEXT;ctx.textAlign='center';
+    if(bh>16) ctx.fillText(val>=1e6?(val/1e6).toFixed(1)+'M':val>=1e3?(val/1e3).toFixed(0)+'k':val,x+barW/2,y-3);
+  });
+}
+
+// ── Rendu Barres horizontales ─────────────────────────────────────────────
+function drawChartHBar(ctx,data,W,H,TEXT,TEXT2,GRID){
+  const labelW=110, PAD={top:8,right:50,bottom:8,left:labelW};
+  const gW=W-PAD.left-PAD.right;
+  const rowH=Math.min((H-PAD.top-PAD.bottom)/data.labels.length,28);
+  const barH=rowH*0.55;
+  const maxV=Math.max(...data.values,1);
+
+  data.labels.forEach((lbl,i)=>{
+    const val=data.values[i];
+    const y=PAD.top+i*rowH+rowH/2;
+    const bw=Math.max(2,(val/maxV)*gW);
+    const color=data.colors[i]||CHART_COLORS[i%CHART_COLORS.length];
+    ctx.font='11px sans-serif';ctx.fillStyle=TEXT;ctx.textAlign='right';
+    ctx.fillText(lbl.length>15?lbl.slice(0,14)+'…':lbl,labelW-6,y+4);
+    // Fond
+    ctx.fillStyle=GRID;
+    ctx.beginPath();if(ctx.roundRect)ctx.roundRect(PAD.left,y-barH/2,gW,barH,3);
+    else ctx.rect(PAD.left,y-barH/2,gW,barH);ctx.fill();
+    // Barre
+    ctx.fillStyle=color;
+    ctx.beginPath();if(ctx.roundRect)ctx.roundRect(PAD.left,y-barH/2,bw,barH,3);
+    else ctx.rect(PAD.left,y-barH/2,bw,barH);ctx.fill();
+    // Valeur
+    ctx.font='10px sans-serif';ctx.fillStyle=TEXT2;ctx.textAlign='left';
+    ctx.fillText(val>=1e6?(val/1e6).toFixed(1)+'M':val>=1e3?(val/1e3).toFixed(0)+'k':val,PAD.left+gW+4,y+4);
+  });
+}
+
+// ── Rendu Courbe ──────────────────────────────────────────────────────────
+function drawChartLine(ctx,data,W,H,TEXT,TEXT2,GRID){
+  if(data.values.length<2) return drawChartBar(ctx,data,W,H,TEXT,TEXT2,GRID);
+  const PAD={top:20,right:16,bottom:44,left:44};
+  const gW=W-PAD.left-PAD.right, gH=H-PAD.top-PAD.bottom;
+  const vals=data.values;
+  const minV=Math.min(...vals)*0.95, maxV=Math.max(...vals)*1.05||1;
+  const toX=i=>PAD.left+i*(gW/(vals.length-1));
+  const toY=v=>PAD.top+gH-((v-minV)/(maxV-minV||1))*gH;
+  const color=data.colors[0]||CHART_COLORS[0];
+
+  for(let i=0;i<=4;i++){
+    const v=minV+(maxV-minV)*i/4;
+    const y=toY(v);
+    ctx.beginPath();ctx.strokeStyle=GRID;ctx.lineWidth=1;
+    ctx.moveTo(PAD.left,y);ctx.lineTo(PAD.left+gW,y);ctx.stroke();
+    ctx.font='10px sans-serif';ctx.fillStyle=TEXT2;ctx.textAlign='right';
+    ctx.fillText(v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':Math.round(v),PAD.left-4,y+3);
+  }
+
+  // Aire de remplissage
+  ctx.beginPath();ctx.moveTo(toX(0),toY(vals[0]));
+  vals.forEach((_,i)=>{ if(i>0)ctx.lineTo(toX(i),toY(vals[i])); });
+  ctx.lineTo(toX(vals.length-1),PAD.top+gH);ctx.lineTo(toX(0),PAD.top+gH);ctx.closePath();
+  ctx.fillStyle=color.replace(')',',0.12)').replace('rgb','rgba');ctx.fill();
+
+  // Ligne
+  ctx.beginPath();ctx.strokeStyle=color;ctx.lineWidth=2.5;ctx.lineJoin='round';
+  vals.forEach((v,i)=>i===0?ctx.moveTo(toX(i),toY(v)):ctx.lineTo(toX(i),toY(v)));
+  ctx.stroke();
+
+  // Points + labels X
+  vals.forEach((v,i)=>{
+    ctx.beginPath();ctx.arc(toX(i),toY(v),3.5,0,Math.PI*2);
+    ctx.fillStyle=color;ctx.fill();
+    if(i%(Math.ceil(vals.length/8))===0||i===vals.length-1){
+      ctx.save();ctx.translate(toX(i),PAD.top+gH+10);ctx.rotate(-Math.PI/5);
+      ctx.font='10px sans-serif';ctx.fillStyle=TEXT;ctx.textAlign='right';
+      ctx.fillText(data.labels[i],0,0);ctx.restore();
+    }
+  });
+}
+
+// ── Rendu Donut ───────────────────────────────────────────────────────────
+function drawChartDonut(ctx,data,W,H,TEXT,BG){
+  const cx=W/2, cy=H/2-10;
+  const R=Math.min(cx,cy)*0.75, r=R*0.55;
+  const total=data.values.reduce((s,v)=>s+v,0)||1;
+  let angle=-Math.PI/2;
+
+  data.values.forEach((v,i)=>{
+    const sweep=(v/total)*Math.PI*2;
+    const color=data.colors[i]||CHART_COLORS[i%CHART_COLORS.length];
+    ctx.beginPath();ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,R,angle,angle+sweep);ctx.closePath();
+    ctx.fillStyle=color;ctx.fill();
+    // Label sur le segment si assez grand
+    if(sweep>0.3){
+      const mid=angle+sweep/2;
+      const lx=cx+Math.cos(mid)*(R+r)/2, ly=cy+Math.sin(mid)*(R+r)/2;
+      ctx.font='bold 10px sans-serif';ctx.fillStyle='#fff';ctx.textAlign='center';
+      ctx.fillText(Math.round(v/total*100)+'%',lx,ly+4);
+    }
+    angle+=sweep;
+  });
+
+  // Trou
+  ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fillStyle=BG;ctx.fill();
+  ctx.font='bold 18px sans-serif';ctx.fillStyle=TEXT;ctx.textAlign='center';
+  ctx.fillText(total>=1e6?(total/1e6).toFixed(1)+'M':total,cx,cy+6);
+
+  // Légende
+  const legY=H-24;
+  let lx=20;
+  data.labels.forEach((lbl,i)=>{
+    if(i>8)return;
+    const color=data.colors[i]||CHART_COLORS[i%CHART_COLORS.length];
+    ctx.beginPath();ctx.arc(lx+5,legY,5,0,Math.PI*2);ctx.fillStyle=color;ctx.fill();
+    ctx.font='10px sans-serif';ctx.fillStyle=TEXT;ctx.textAlign='left';
+    const short=lbl.length>10?lbl.slice(0,9)+'…':lbl;
+    ctx.fillText(short,lx+13,legY+4);
+    lx+=ctx.measureText(short).width+28;
+    if(lx>W-60){lx=20;}
+  });
+}
+
 function onSearch(){searchFilter=document.getElementById('searchInput').value.toLowerCase();document.getElementById('searchClear').classList.toggle('show',searchFilter.length>0);render();}
 function clearSearch(){document.getElementById('searchInput').value='';searchFilter='';document.getElementById('searchClear').classList.remove('show');render();}
 async function toggleSortAlpha(){
@@ -4502,15 +5022,33 @@ async function balanceTeams(){
   const starters=[...participants].filter(p=>evRoles[p.id]==='starter').sort((a,b)=>(b.power_t1||0)-(a.power_t1||0));
   const subs=[...participants].filter(p=>evRoles[p.id]==='sub').sort((a,b)=>(b.power_t1||0)-(a.power_t1||0));
   if(starters.length+subs.length<1){toast('Sélectionne au moins 1 joueur');return;}
-  if(evNbTeams===1){evTeams={A:buildOneTeam(starters,subs),B:null};}
-  else{
+
+  if(evNbTeams===1){
+    evTeams={A:buildOneTeam(starters,subs),B:null};
+  } else if(evAsymMode){
+    // Mode asymétrique : équipe A = grosse (evAsymSizeA joueurs, les plus forts)
+    // Équipe B = le reste (moins forte)
+    const all=[...starters,...subs].sort((a,b)=>(b.power_t1||0)-(a.power_t1||0));
+    const nA = Math.min(evAsymSizeA, all.length);
+    const groupA = all.slice(0, nA);
+    const groupB = all.slice(nA);
+    // Répartir starters/subs selon les catégories
+    const startersA = groupA.filter(p=>evRoles[p.id]==='starter');
+    const subsA     = groupA.filter(p=>evRoles[p.id]==='sub');
+    const startersB = groupB.filter(p=>evRoles[p.id]==='starter');
+    const subsB     = groupB.filter(p=>evRoles[p.id]==='sub');
+    evTeams={A:buildOneTeam(startersA,subsA),B:buildOneTeam(startersB,subsB)};
+    const powA=teamTotalPower(evTeams.A), powB=teamTotalPower(evTeams.B);
+    toast(`⚡ Équipe A : ${groupA.length} joueurs (${(powA/1e6).toFixed(1)}M) · Équipe B : ${groupB.length} joueurs (${(powB/1e6).toFixed(1)}M)`);
+  } else {
     const allPlayers=[...starters,...subs.slice(0,Math.max(0,TOTAL_STARTERS-starters.length))];
     const subsOnly=subs.slice(Math.max(0,TOTAL_STARTERS-starters.length));
     const[groupA,groupB]=splitBalanced(allPlayers);const[subA,subB]=splitBalanced(subsOnly);
     evTeams={A:buildOneTeam(groupA,subA,true),B:buildOneTeam(groupB,subB,true)};
   }
   await saveEvTeamsToDB();
-  updateEvBanner();toast('⚖️ Équipes sauvegardées !');renderEventTeams();
+  if(!evAsymMode) toast('⚖️ Équipes sauvegardées !');
+  updateEvBanner();renderEventTeams();
 }
 
 function splitBalanced(players){
