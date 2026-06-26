@@ -5043,8 +5043,14 @@ async function balanceTeams(){
     const nA = Math.min(Math.max(1, evAsymSizeA), all.length-1);
     const groupA = all.slice(0, nA);
     const groupB = all.slice(nA);
-    // buildOneTeam accepte tout type de joueur (pas de distinction starter/sub ici)
-    evTeams={A:buildOneTeam(groupA,[]),B:buildOneTeam(groupB,[])};
+    // Remplir les catégories avec les joueurs du groupe, le surplus va en SUB
+    // On calcule combien de places de titulaires existent (hors SUB)
+    const STARTER_SLOTS = CATEGORIES.filter(c=>c.key!=='SUB').reduce((s,c)=>s+c.size,0);
+    const titA = groupA.slice(0, STARTER_SLOTS);
+    const subA = groupA.slice(STARTER_SLOTS);
+    const titB = groupB.slice(0, STARTER_SLOTS);
+    const subB = groupB.slice(STARTER_SLOTS);
+    evTeams={A:buildOneTeam(titA, subA), B:buildOneTeam(titB, subB)};
     const powA=teamTotalPower(evTeams.A), powB=teamTotalPower(evTeams.B);
     const fmtPow = v => v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
     toast(`⚡ A : ${groupA.length} joueurs (${fmtPow(powA)}) · B : ${groupB.length} joueurs (${fmtPow(powB)})`);
