@@ -5036,20 +5036,18 @@ async function balanceTeams(){
   if(evNbTeams===1){
     evTeams={A:buildOneTeam(starters,subs),B:null};
   } else if(evAsymMode){
-    // Mode asymétrique : équipe A = grosse (evAsymSizeA joueurs, les plus forts)
-    // Équipe B = le reste (moins forte)
+    // Mode asymétrique : tous les joueurs triés par puissance
+    // Équipe A = les N premiers (les plus forts), Équipe B = le reste
     const all=[...starters,...subs].sort((a,b)=>(b.power_t1||0)-(a.power_t1||0));
-    const nA = Math.min(evAsymSizeA, all.length);
+    if(all.length<2){toast('Sélectionne au moins 2 joueurs');return;}
+    const nA = Math.min(Math.max(1, evAsymSizeA), all.length-1);
     const groupA = all.slice(0, nA);
     const groupB = all.slice(nA);
-    // Répartir starters/subs selon les catégories
-    const startersA = groupA.filter(p=>evRoles[p.id]==='starter');
-    const subsA     = groupA.filter(p=>evRoles[p.id]==='sub');
-    const startersB = groupB.filter(p=>evRoles[p.id]==='starter');
-    const subsB     = groupB.filter(p=>evRoles[p.id]==='sub');
-    evTeams={A:buildOneTeam(startersA,subsA),B:buildOneTeam(startersB,subsB)};
+    // buildOneTeam accepte tout type de joueur (pas de distinction starter/sub ici)
+    evTeams={A:buildOneTeam(groupA,[]),B:buildOneTeam(groupB,[])};
     const powA=teamTotalPower(evTeams.A), powB=teamTotalPower(evTeams.B);
-    toast(`⚡ Équipe A : ${groupA.length} joueurs (${(powA/1e6).toFixed(1)}M) · Équipe B : ${groupB.length} joueurs (${(powB/1e6).toFixed(1)}M)`);
+    const fmtPow = v => v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
+    toast(`⚡ A : ${groupA.length} joueurs (${fmtPow(powA)}) · B : ${groupB.length} joueurs (${fmtPow(powB)})`);
   } else {
     const allPlayers=[...starters,...subs.slice(0,Math.max(0,TOTAL_STARTERS-starters.length))];
     const subsOnly=subs.slice(Math.max(0,TOTAL_STARTERS-starters.length));
