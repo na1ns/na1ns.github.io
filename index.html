@@ -1830,7 +1830,7 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
           </div>
           <div id="evPlayersList"></div>
           <div style="display:flex;gap:10px;align-items:center;margin:1rem 0;flex-wrap:wrap">
-            <button class="btn btn-primary" onclick="balanceTeams()">⚖️ Équilibrer et sauvegarder</button>
+            <button class="btn btn-primary" id="balanceBtn" onclick="balanceTeams()">⚖️ Équilibrer et sauvegarder</button>
             <div id="asymControls" style="display:none;align-items:center;gap:8px;padding:6px 12px;background:rgba(255,184,77,0.06);border:1px solid rgba(255,184,77,0.2);border-radius:var(--radius-lg)">
               <span style="font-size:11px;font-weight:700;color:var(--amber)">Équipe A :</span>
               <input type="range" id="asymSlider" min="15" max="35" step="1" value="25"
@@ -4921,11 +4921,21 @@ async function resetTeams(){
 }
 
 async function setNbTeams(n){
-  evNbTeams=n;
-  document.getElementById('evNb1').classList.toggle('active',n===1);
-  document.getElementById('evNb2').classList.toggle('active',n===2);
+  if(n==='asym'){
+    evAsymMode=true; evNbTeams=2;
+  } else {
+    evAsymMode=false; evNbTeams=n;
+  }
+  document.getElementById('evNb1').classList.toggle('active',evNbTeams===1&&!evAsymMode);
+  document.getElementById('evNb2').classList.toggle('active',evNbTeams===2&&!evAsymMode);
+  const asymBtn=document.getElementById('evNbAsym');
+  if(asymBtn) asymBtn.classList.toggle('active',evAsymMode);
+  const asymCtrl=document.getElementById('asymControls');
+  if(asymCtrl) asymCtrl.style.display=evAsymMode?'flex':'none';
+  const balBtn=document.getElementById('balanceBtn');
+  if(balBtn) balBtn.innerHTML=evAsymMode?'⚡ Créer les équipes asymétriques':'⚖️ Équilibrer et sauvegarder';
   if(Object.keys(evRoles).some(id=>evRoles[id]!=='none'))
-    await sb.from('event_roles').update({nb_teams:n}).neq('player_id',0);
+    await sb.from('event_roles').update({nb_teams:evNbTeams}).neq('player_id',0);
   evTeams=null;renderEventPlayers();renderEventTeams();
 }
 
