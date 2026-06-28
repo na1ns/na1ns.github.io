@@ -3842,10 +3842,10 @@ function renderStatsCards(){
         <div class="stat-row"><span class="stat-row-label">Taux de validation</span><span class="stat-row-val" style="color:${vrColor}">${validRate!==null?validRate+'%':'—'}</span><div class="stat-bar-wrap"><div class="stat-bar ${vrBar}" style="width:${vr}%"></div></div></div>
         <div class="stat-row"><span class="stat-row-label">Meilleure série</span><span class="stat-row-val" style="color:var(--gold)">${bestStreak} sem.</span></div>
         <div class="stat-row"><span class="stat-row-label">Série actuelle</span><span class="stat-row-val" style="color:${currentStreak>=3?'var(--green)':'var(--text2)'}">${currentStreak} sem.</span></div>
-        ${last10.length?`<div style="margin-top:6px"><div style="font-size:10px;color:var(--text3);margin-bottom:4px;font-weight:600;letter-spacing:.05em;text-transform:uppercase">10 dernières semaines</div><div class="stat-streak">${streakDots}</div></div>`:''}
+        ${last10.length?`<div style="margin-top:6px"><div style="font-size:10px;color:var(--text3);margin-bottom:4px;font-weight:600;letter-spacing:.05em;text-transform:uppercase">10 dernières semaines</div><div class="stat-streak">${streakDots}</div></div>
         <div class="stat-section-title">📅 Historique (${totalWeeks} semaine${totalWeeks>1?'s':''})</div>
         <div class="week-hist">${weekRows}</div>
-      </div>
+      </div>`:''}
       ${badges.length?`<div class="stat-badge-row">${badges.join('')}</div>`:''}
     </div>`;
   }).join('');
@@ -4083,23 +4083,12 @@ function renderStatsReliability(){
 // ── Définition des axes disponibles ──────────────────────────────────────
 const CHART_AXES = {
   x: [
-    {key:'players',   label:'Joueurs',          desc:'Un point par joueur'},
-    {key:'weeks',     label:'Semaines',         desc:'Évolution semaine par semaine'},
+    {key:'players', label:'Joueurs', desc:'Un point par joueur'},
   ],
   y: [
-    {key:'driver_count',  label:'Tirages Chauffeur',  group:'Tirages'},
-    {key:'vip_count',     label:'Tirages VIP',         group:'Tirages'},
-    {key:'total_draws',   label:'Total Tirages',       group:'Tirages'},
-    {key:'coffres_rate',  label:'Taux Coffres %',      group:'Coffres'},
-    {key:'reliability',   label:'Score Fiabilité %',   group:'Fiabilité'},
-    {key:'power_t1',      label:'Puissance T1',        group:'Puissance'},
-    {key:'trend',         label:'Tendance (semaine)',  group:'Fiabilité'},
+    {key:'coffres_rate', label:'Taux Coffres %', group:'Coffres'},
+    {key:'power_t1',     label:'Puissance T1',   group:'Puissance'},
   ],
-  yWeeks: [
-    {key:'coffres_rate',  label:'Taux Coffres guilde %', group:'Coffres'},
-    {key:'power_total',   label:'Puissance totale',       group:'Puissance'},
-    {key:'validated_count',label:'Joueurs validés',       group:'Coffres'},
-  ]
 };
 
 const CHART_TYPES = [
@@ -4233,20 +4222,6 @@ function getChartData(){
     };
   }
 
-  if(s.xAxis === 'weeks'){
-    // Regrouper weeksHistory par semaine (date d'archivage tronquée)
-    const weekSet = [...new Set(weeksHistory.map(w=>w.archived_at?w.archived_at.slice(0,10):null).filter(Boolean))].sort();
-    const vals = weekSet.map(dateStr=>{
-      const ws = weeksHistory.filter(w=>w.archived_at&&w.archived_at.startsWith(dateStr));
-      if(!ws.length) return null;
-      if(s.yAxis==='coffres_rate') return Math.round(ws.filter(w=>w.validated).length/ws.length*100);
-      if(s.yAxis==='power_total')  return ws.reduce((s,w)=>s+(w.power_snapshot||0),0);
-      if(s.yAxis==='validated_count') return ws.filter(w=>w.validated).length;
-      return null;
-    }).filter(Boolean);
-    const labels = weekSet.map(d=>d.slice(5)); // MM-DD
-    return {labels, values: vals, colors: Array(vals.length).fill(CHART_COLORS[0])};
-  }
   return {labels:[], values:[], colors:[]};
 }
 
@@ -4261,24 +4236,14 @@ function renderStatsGraphiques(){
   const GRID  = isDark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.07)';
   const BG    = isDark?'#0f111a':'#ffffff';
 
-  // Axes Y disponibles selon X
-  const yAxes = _chartBuilderState.xAxis === 'weeks'
-    ? CHART_AXES.yWeeks
-    : CHART_AXES.y;
-
-  // Si l'axe Y sélectionné n'est pas dans la liste, reset
+  // Axes Y disponibles
+  const yAxes = CHART_AXES.y;
   if(!yAxes.find(a=>a.key===_chartBuilderState.yAxis)){
     _chartBuilderState.yAxis = yAxes[0].key;
   }
-
-  // Grouper les axes Y
   const yGroups = {};
   yAxes.forEach(a=>{ if(!yGroups[a.group]) yGroups[a.group]=[]; yGroups[a.group].push(a); });
-
-  // Types compatibles avec l'axe X
-  const compatTypes = _chartBuilderState.xAxis === 'weeks'
-    ? CHART_TYPES.filter(t=>['bar','line'].includes(t.key))
-    : CHART_TYPES;
+  const compatTypes = CHART_TYPES;
 
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:260px 1fr;gap:16px;align-items:start">
@@ -4297,16 +4262,7 @@ function renderStatsGraphiques(){
           </div>
         </div>
 
-        <!-- Axe X -->
-        <div>
-          <div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">Axe X</div>
-          <div style="display:flex;flex-direction:column;gap:4px">
-            ${CHART_AXES.x.map(a=>`
-              <button onclick="chartBuilderSet('xAxis','${a.key}')" style="padding:7px 10px;border:1px solid ${_chartBuilderState.xAxis===a.key?'var(--blue)':'var(--border)'};border-radius:var(--radius-lg);background:${_chartBuilderState.xAxis===a.key?'rgba(124,159,255,0.12)':'var(--surface2)'};color:${_chartBuilderState.xAxis===a.key?'var(--blue)':'var(--text2)'};font-size:12px;font-weight:600;cursor:pointer;text-align:left;transition:all .15s">
-                ${a.label} <span style="font-size:10px;color:var(--text3);font-weight:400">${a.desc}</span>
-              </button>`).join('')}
-          </div>
-        </div>
+
 
         <!-- Axe Y -->
         <div>
@@ -4321,7 +4277,6 @@ function renderStatsGraphiques(){
             </div>`).join('')}
         </div>
 
-        ${_chartBuilderState.xAxis==='players'?`
         <!-- Filtre joueurs -->
         <div>
           <div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">Filtre</div>
@@ -4363,12 +4318,12 @@ function renderStatsGraphiques(){
           </div>
           ${_chartBuilderState.groupSim?`<div style="display:flex;align-items:center;gap:8px">
             <span style="font-size:10px;color:var(--text3)">Seuil</span>
-            <input type="range" min="5" max="30" step="5" value="${_chartBuilderState.simPct}"
+            <input type="range" min="1" max="50" step="1" value="${_chartBuilderState.simPct}"
               oninput="chartBuilderSet('simPct',parseInt(this.value))"
               style="flex:1;accent-color:var(--blue)">
-            <span style="font-size:11px;font-weight:700;color:var(--blue);width:30px">${_chartBuilderState.simPct}%</span>
+            <span style="font-size:11px;font-weight:700;color:var(--blue);width:36px">${_chartBuilderState.simPct}%</span>
           </div>`:'<div style="font-size:10px;color:var(--text3);line-height:1.5">Fusionne les joueurs avec des valeurs proches en un seul groupe.</div>'}
-        </div>`:''}
+        </div>
 
       </div>
 
@@ -4399,7 +4354,7 @@ function drawBuilderChart(TEXT, TEXT2, GRID, BG){
   if(!canvas) return;
 
   const data = getChartData();
-  const yDef = [...CHART_AXES.y, ...CHART_AXES.yWeeks].find(a=>a.key===s.yAxis);
+  const yDef = CHART_AXES.y.find(a=>a.key===s.yAxis);
   const xDef = CHART_AXES.x.find(a=>a.key===s.xAxis);
   if(titleEl) titleEl.textContent = `${yDef?.label||''} par ${xDef?.label||''}`;
 
