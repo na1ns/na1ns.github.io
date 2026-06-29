@@ -3888,23 +3888,18 @@ function renderStats(){
 
 
 /* ══════════════════════════════════════════════════════
-   FIABILITÉ — Score combiné par joueur
-   ══════════════════════════════════════════════════════ */
-/* ══════════════════════════════════════════════════════
-   FIABILITÉ v2 — Calcul affiné
+   FIABILITÉ v3 — Calcul affiné
    ══════════════════════════════════════════════════════
 
-   Formule (4 composantes) :
-   ┌─ Coffres pondérés (40%) ──────────────────────────┐
-   │  Semaines récentes comptent 2x (décroissance expo)│
+   Formule (3 composantes) :
+   ┌─ Coffres pondérés (70%) ──────────────────────────┐
+   │  Semaines récentes comptent davantage (expo -0.15)│
    │  → mesure la régularité ACTUELLE                  │
-   ├─ Présence relative (25%) ─────────────────────────┤
-   │  Tirages du joueur vs médiane de la guilde        │
-   │  → évite de pénaliser les nouveaux                │
-   ├─ Sanctions (neutralisées) ─────────────────────────┤
-   │  (demi-vie = 4 semaines)                          │
+   ├─ Puissance T1 relative (15%) ─────────────────────┤
+   │  Puissance du joueur vs moyenne de la guilde      │
+   │  → récompense les joueurs forts                   │
    ├─ Tendance (15%) ──────────────────────────────────┤
-   │  Comparaison 2 dernières semaines vs 2 précédentes│
+   │  Dernière semaine vs précédente                   │
    │  → bonus si progression, malus si régression      │
    └───────────────────────────────────────────────────┘
    Joueurs < 2 semaines : score null = "Données insuffisantes"
@@ -3912,123 +3907,136 @@ function renderStats(){
 
 function computeReliabilityScore(p){
   const weeks = getPlayerWeeks(p);
-  if(weeks.length < 2) return null; // données insuffisantes
+  if(weeks.length < 2) return null;
 
-  // ── 1. Coffres pondérés (40%) ─────────────────────────
-  // Poids de chaque semaine : exp(-0.15 * rang_depuis_fin)
-  // La semaine la plus récente a le poids maximal (1.0)
+  // ── 1. Coffres pondérés (70%) ─────────────────────────
   let weightedValid = 0, weightedTotal = 0;
   weeks.forEach((w, i) => {
-    const rank = weeks.length - 1 - i; // 0 = plus récente
-    const weight = Math.exp(-0.15 * rank);
+    const weight = Math.exp(-0.15 * (weeks.length - 1 - i));
     weightedTotal += weight;
     if(w.validated) weightedValid += weight;
   });
   const coffresScore = weightedTotal > 0 ? weightedValid / weightedTotal : 0;
 
-  // ── 2. Présence relative (25%) ────────────────────────
-  // Compare tirages du joueur à la médiane de la guilde
-  // Si jamais tiré : score neutre (0.5) — pas de sa faute
-  const playerDraws = (p.driver_count||0) + (p.vip_count||0);
-  let drawScore = 0.5; // neutre par défaut (jamais tiré)
-  if(playerDraws > 0){
-    const allDraws = participants.map(x => (x.driver_count||0) + (x.vip_count||0)).filter(x=>x>0).sort((a,b)=>a-b);
-    const median = allDraws[Math.floor(allDraws.length/2)] || 1;
-    drawScore = Math.min(1, playerDraws / Math.max(median, 1));
+  // ── 2. Puissance T1 relative (15%) ────────────────────
+  // Compare la puissance du joueur à la moyenne de la guilde
+  // Neutre (0.5) si pas de puissance renseignée
+  const playerPow = p.power_t1 || 0;
+  let powerScore = 0.5;
+  if(playerPow > 0){
+    const allPow = participants.map(x=>x.power_t1||0).filter(x=>x>0);
+    const avgPow = allPow.length ? allPow.reduce((s,v)=>s+v,0)/allPow.length : 1;
+    // Score : 0.5 à la moyenne, 1.0 à 2× la moyenne, 0 à 0
+    powerScore = Math.max(0, Math.min(1, playerPow / (avgPow * 2)));
   }
 
-  // Sanctions supprimées — composante neutralisée
-  const sanctionScore = 1.0;
-
-  // ── 4. Tendance (10%) ─────────────────────────────────
-  // Compare la dernière semaine à la semaine précédente
-  let trendScore = 0.5; // neutre si pas assez de données
+  // ── 3. Tendance (15%) ─────────────────────────────────
+  let trendScore = 0.5;
   if(weeks.length >= 2){
-    const lastWeek  = weeks[weeks.length-1];
-    const prevWeek  = weeks[weeks.length-2];
-    const lastRate  = lastWeek.validated  ? 1 : 0;
-    const prevRate  = prevWeek.validated  ? 1 : 0;
-    const diff = lastRate - prevRate;
+    const diff = (weeks[weeks.length-1].validated?1:0) - (weeks[weeks.length-2].validated?1:0);
     trendScore = Math.max(0, Math.min(1, 0.5 + diff * 0.5));
   }
 
-  // ── Score final ───────────────────────────────────────
-  const raw = coffresScore*0.60 + drawScore*0.25 + trendScore*0.15;
-  return Math.round(raw * 100);
+  return Math.round((coffresScore*0.70 + powerScore*0.15 + trendScore*0.15) * 100);
 }
 
-// Détail lisible pour l'info-bulle
+// Détail lisible pour l'affichage admin
 function computeReliabilityDetail(p){
   const weeks = getPlayerWeeks(p);
   if(weeks.length < 2) return null;
-  const now = Date.now();
 
+  // Coffres
   let wValid=0, wTotal=0;
-  weeks.forEach((w,i)=>{
-    const weight=Math.exp(-0.15*(weeks.length-1-i));
-    wTotal+=weight; if(w.validated)wValid+=weight;
-  });
+  weeks.forEach((w,i)=>{ const wt=Math.exp(-0.15*(weeks.length-1-i)); wTotal+=wt; if(w.validated)wValid+=wt; });
   const coffres = wTotal>0?wValid/wTotal:0;
 
-  const playerDraws=(p.driver_count||0)+(p.vip_count||0);
-  let draws=0.5; // neutre si jamais tiré
-  if(playerDraws>0){
-    const allDraws=participants.map(x=>(x.driver_count||0)+(x.vip_count||0)).filter(x=>x>0).sort((a,b)=>a-b);
-    const median=allDraws[Math.floor(allDraws.length/2)]||1;
-    draws=Math.min(1,playerDraws/Math.max(median,1));
+  // Puissance
+  const playerPow = p.power_t1||0;
+  let powerScore = 0.5;
+  if(playerPow>0){
+    const allPow=participants.map(x=>x.power_t1||0).filter(x=>x>0);
+    const avgPow=allPow.length?allPow.reduce((s,v)=>s+v,0)/allPow.length:1;
+    powerScore=Math.max(0,Math.min(1,playerPow/(avgPow*2)));
   }
-  const neverDrawn=playerDraws===0;
+  const avgPowGuilde = (()=>{ const a=participants.map(x=>x.power_t1||0).filter(x=>x>0); return a.length?Math.round(a.reduce((s,v)=>s+v,0)/a.length):0; })();
 
-
-  let trend=0.5;
-  let label='→ Insuffisant';
+  // Tendance
+  let trend=0.5, trendLabel='→ Insuffisant';
   if(weeks.length>=2){
-    const lastRate = weeks[weeks.length-1].validated ? 1 : 0;
-    const prevRate = weeks[weeks.length-2].validated ? 1 : 0;
-    const d = lastRate - prevRate;
-    trend = Math.max(0, Math.min(1, 0.5 + d * 0.5));
-    label = d > 0 ? '↑ En progression' : d < 0 ? '↓ En régression' : '→ Stable';
+    const d=(weeks[weeks.length-1].validated?1:0)-(weeks[weeks.length-2].validated?1:0);
+    trend=Math.max(0,Math.min(1,0.5+d*0.5));
+    trendLabel=d>0?'↑ En progression':d<0?'↓ En régression':'→ Stable';
   }
 
   return {
-    coffres:Math.round(coffres*100),
-    draws:Math.round(draws*100),
-    trend:Math.round(trend*100),
-    trendLabel:label,
-    weeks:weeks.length,
-    neverDrawn,
+    coffres:   Math.round(coffres*100),
+    power:     Math.round(powerScore*100),
+    powerRaw:  playerPow,
+    avgPow:    avgPowGuilde,
+    trend:     Math.round(trend*100),
+    trendLabel,
+    weeks:     weeks.length,
+    noPower:   playerPow===0,
   };
+}
+
+let _reliabilitySort = 'score'; // 'score' | 'coffres' | 'power' | 'trend'
+
+function setReliabilitySort(key){
+  _reliabilitySort = key;
+  renderStatsReliability();
 }
 
 function renderStatsReliability(){
   const el=document.getElementById('statsReliabilityContainer');
   if(!el)return;
 
-  // Séparer joueurs scorés et insuffisants
   const allScored = participants.map(p=>({...p, score:computeReliabilityScore(p), detail:computeReliabilityDetail(p)}));
-  const scored = allScored.filter(p=>p.score!==null).sort((a,b)=>b.score-a.score);
+  let scored = allScored.filter(p=>p.score!==null);
   const insufficient = allScored.filter(p=>p.score===null);
 
+  // Tri selon la sélection
+  if(_reliabilitySort==='coffres')
+    scored.sort((a,b)=>(b.detail?.coffres||0)-(a.detail?.coffres||0));
+  else if(_reliabilitySort==='power')
+    scored.sort((a,b)=>(b.power_t1||0)-(a.power_t1||0));
+  else if(_reliabilitySort==='trend')
+    scored.sort((a,b)=>(b.detail?.trend||0)-(a.detail?.trend||0));
+  else
+    scored.sort((a,b)=>b.score-a.score);
+
   const getColor = s => s>=80?'#4FD1A5':s>=60?'#FFB84D':'#FF6B6B';
-  const getBg    = s => s>=80?'rgba(79,209,165,0.08)':s>=60?'rgba(255,184,77,0.08)':'rgba(255,107,107,0.08)';
   const avg = scored.length?Math.round(scored.reduce((s,p)=>s+p.score,0)/scored.length):0;
   const top = scored.filter(p=>p.score>=80).length;
   const mid = scored.filter(p=>p.score>=60&&p.score<80).length;
   const low = scored.filter(p=>p.score<60).length;
+  const fmtPow = v => v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v||'—';
+
+  const sortBtns = [
+    {key:'score',   lbl:'Score'},
+    {key:'coffres', lbl:'📦 Coffres'},
+    {key:'power',   lbl:'⚡ Puissance'},
+    {key:'trend',   lbl:'📈 Tendance'},
+  ];
 
   el.innerHTML=`
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin:4px 0 18px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin:4px 0 14px">
       ${[{val:avg+'%',lbl:'Score moyen guilde',color:'var(--blue)'},{val:top,lbl:'🟢 Fiables (≥80)',color:'#4FD1A5'},{val:mid,lbl:'🟡 Moyens (60-79)',color:'#FFB84D'},{val:low,lbl:'🔴 À risque (<60)',color:'#FF6B6B'}]
         .map(({val,lbl,color})=>`<div class="stats-global-card"><div class="stats-global-val" style="color:${color}">${val}</div><div class="stats-global-lbl">${lbl}</div></div>`).join('')}
+    </div>
+
+    <!-- Tri par item -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <span style="font-size:11px;font-weight:700;color:var(--text3)">Trier par</span>
+      ${sortBtns.map(b=>`<button onclick="setReliabilitySort('${b.key}')" style="height:28px;padding:0 12px;border:1px solid ${_reliabilitySort===b.key?'var(--blue)':'var(--border2)'};border-radius:99px;background:${_reliabilitySort===b.key?'rgba(124,159,255,0.12)':'transparent'};color:${_reliabilitySort===b.key?'var(--blue)':'var(--text3)'};font-size:11px;font-weight:700;cursor:pointer;transition:all .15s">${b.lbl}</button>`).join('')}
     </div>
 
     <details style="margin-bottom:12px;font-size:11px;color:var(--text3);cursor:pointer">
       <summary style="font-weight:700;letter-spacing:.03em;user-select:none">ℹ️ Comment est calculé ce score ?</summary>
       <div style="margin-top:8px;padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);line-height:1.7">
-        <b style="color:var(--text)">55% Coffres pondérés</b> — Les semaines récentes comptent davantage (décroissance exponentielle). Un joueur qui fait ses coffres <i>maintenant</i> est mieux noté qu'un qui était régulier mais ne l'est plus.<br>
-        <b style="color:var(--text)">15% Présence relative</b> — Tirages comparés à la médiane de la guilde. Un nouveau joueur n'est pas pénalisé d'office pour avoir peu de tirages.<br>
-        
-        <b style="color:var(--text)">10% Tendance</b> — Comparaison des 2 dernières semaines vs les 2 précédentes. Bonus si le joueur progresse, malus s'il régresse.
+        <b style="color:var(--text)">70% Coffres pondérés</b> — Les semaines récentes comptent davantage. Critère principal.<br>
+        <b style="color:var(--text)">15% Puissance T1</b> — Puissance du joueur vs moyenne de la guilde. Score max à 2× la moyenne.<br>
+        <b style="color:var(--text)">15% Tendance</b> — Dernière semaine vs précédente. ↑ progression, ↓ régression.
       </div>
     </details>
 
@@ -4037,14 +4045,12 @@ function renderStatsReliability(){
         const d=p.detail;
         const trendIcon=d.trendLabel?d.trendLabel.slice(0,1):'→';
         const trendColor=trendIcon==='↑'?'#4FD1A5':trendIcon==='↓'?'#FF6B6B':'#FFB84D';
-        const weeks=getPlayerWeeks(p);
-        const coffresRaw=weeks.length?Math.round(weeks.filter(w=>w.validated).length/weeks.length*100):0;
         const adminDetail = isAdmin() ? `
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--border)">
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--border)">
             ${[
-              {lbl:'📦 Coffres',val:d.coffres+'%',note:'(pondéré)'},
-              {lbl:'🚂 Présence',val:d.neverDrawn?'—':d.draws+'%',note:d.neverDrawn?'jamais tiré':'vs médiane'},
-              {lbl:'📈 Tendance',val:trendIcon,note:d.trendLabel||''},
+              {lbl:'📦 Coffres',    val:d.coffres+'%',      note:'(pondéré)'},
+              {lbl:'⚡ Puissance',  val:d.noPower?'—':fmtPow(d.powerRaw), note:d.noPower?'non renseignée':`moy. ${fmtPow(d.avgPow)}`},
+              {lbl:'📈 Tendance',   val:trendIcon,           note:d.trendLabel||''},
             ].map(({lbl,val,note})=>`
               <div style="padding:7px 10px;border-right:1px solid var(--border)">
                 <div style="font-size:10px;color:var(--text3);margin-bottom:2px">${lbl}</div>
