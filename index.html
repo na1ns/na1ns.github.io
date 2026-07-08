@@ -1686,6 +1686,7 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
         <div class="tools-bar">
           <button class="btn" onclick="openModal('importModal')">⬆ Importer</button>
           <button class="btn" onclick="loadAll()">↻ Actualiser</button>
+          <button class="btn" onclick="exportPlayersXlsx()" title="Exporter la liste des joueurs en Excel">📥 Export Excel</button>
           <button class="btn" onclick="openRepairModal()" title="Réparer l'historique d'un joueur renommé" style="display:none" id="btnRepairHistory">🔧 Réparer historique</button>
           <button class="btn btn-gold" id="archiveWeekParticipantsBtn" onclick="archiveWeekFromParticipants()" style="display:none">📅 Archiver la semaine</button>
         </div>
@@ -4594,6 +4595,28 @@ async function doRepairHistory(){
   await loadAll();
   setBusy(false);
   toast(`✅ Historique de "${oldName.trim()}" rattaché à ${newName}`);
+}
+
+
+async function exportPlayersXlsx(){
+  if(!participants.length){ toast('Aucun joueur à exporter'); return; }
+  if(typeof XLSX === 'undefined'){
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload = resolve; s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+  const sorted = [...participants].sort((a,b)=>a.name.localeCompare(b.name));
+  const wb = XLSX.utils.book_new();
+  const rows = [['Pseudo'], ...sorted.map(p=>[p.name])];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch: 25}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Joueurs');
+  const date = new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'}).replace(/\//g,'-');
+  XLSX.writeFile(wb, 'joueurs_nains_de_mithril_'+date+'.xlsx');
+  toast('📥 '+sorted.length+' joueurs exportés');
 }
 
 function onSearch(){searchFilter=document.getElementById('searchInput').value.toLowerCase();document.getElementById('searchClear').classList.toggle('show',searchFilter.length>0);render();}
