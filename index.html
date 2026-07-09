@@ -347,7 +347,7 @@ body.light .hist-del:hover{color:#b82020;background:rgba(184,32,32,0.1)}
 .stats-sort-bar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
 .stats-sort-btn{height:32px;padding:0 16px;border:1px solid var(--border2);border-radius:99px;background:rgba(255,255,255,0.03);color:var(--text3);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:all var(--transition)}
 .stats-sort-btn.active{background:rgba(124,159,255,0.1);color:var(--blue);border-color:rgba(124,159,255,0.25)}
-.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
 .stat-card{background:linear-gradient(145deg,var(--surface),var(--surface2));border:1px solid var(--border);border-radius:var(--radius-xl);padding:18px 20px;box-shadow:var(--shadow);transition:all var(--transition)}
 .stat-card:hover{border-color:var(--border2);transform:translateY(-3px);box-shadow:var(--shadow-lg)}
 .stat-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
@@ -701,7 +701,6 @@ body.mobile .toast{bottom:74px}
 @media(max-width:480px){
   body:not(.mobile) .page{padding:1rem .75rem 5rem;max-width:100%}
   body:not(.mobile) .result-cards{grid-template-columns:1fr}
-  body:not(.mobile) .stats-grid{grid-template-columns:1fr}
   body:not(.mobile) .ev-teams-grid.two{grid-template-columns:1fr}
 }
 </style>
@@ -1054,7 +1053,7 @@ body.light .hist-del:hover{color:#b82020;background:rgba(184,32,32,0.1)}
 .stats-sort-bar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
 .stats-sort-btn{height:32px;padding:0 16px;border:1px solid var(--border2);border-radius:99px;background:rgba(255,255,255,0.03);color:var(--text3);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:all var(--transition)}
 .stats-sort-btn.active{background:rgba(124,159,255,0.1);color:var(--blue);border-color:rgba(124,159,255,0.25)}
-.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
 .stat-card{background:linear-gradient(145deg,var(--surface),var(--surface2));border:1px solid var(--border);border-radius:var(--radius-xl);padding:18px 20px;box-shadow:var(--shadow);transition:all var(--transition)}
 .stat-card:hover{border-color:var(--border2);transform:translateY(-3px);box-shadow:var(--shadow-lg)}
 .stat-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
@@ -2254,7 +2253,6 @@ let pollSelectedId = null;
 let pollSelectedName = null;
 const POLL_ROLE_MAP = { present:'starter', remplacant:'sub', absent:'none' };
 const POLL_ICONS = { present:'✅', remplacant:'🔄', absent:'❌' };
-const POLL_LABELS = { present:'Présent', remplacant:'Remplaçant', absent:'Absent' };
 
 function checkPollMode(){
   const params = new URLSearchParams(window.location.search);
@@ -4709,7 +4707,7 @@ function renderHistFiltered(){
     // On détecte via weekly_draws : trouver les entrées is_weekly où le nom a changé
     filtered = filtered.filter(h=>h.is_weekly && h.replaced === true);
     if(!filtered.length){
-      el.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text3);font-size:13px">Aucun remplacement enregistré.<br><span style="font-size:11px;opacity:.7">Les remplacements s'enregistrent automatiquement lors du remplacement d'un absent.</span></div>';
+      el.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text3);font-size:13px">Aucun remplacement enregistré.<br><span style="font-size:11px;opacity:.7">Les remplacements s\'enregistrent automatiquement lors du remplacement d\'un absent.</span></div>';
       return;
     }
   }
