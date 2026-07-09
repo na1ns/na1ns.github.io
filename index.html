@@ -703,7 +703,8 @@ body.mobile .toast{bottom:74px}
   body:not(.mobile) .result-cards{grid-template-columns:1fr}
   body:not(.mobile) .stats-grid{grid-template-columns:1fr}
   body:not(.mobile) .ev-teams-grid.two{grid-template-columns:1fr}
-}ad>
+}
+</style>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>bienvenue chez NA1N🚂</title>
@@ -1445,6 +1446,9 @@ body.light .poll-ev-banner{background:rgba(26,63,196,.04);border-color:rgba(26,6
 body.light .planning-absent-btn{background:rgba(184,32,32,.06);border-color:rgba(184,32,32,.15)}
 body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(--border2)}
 
+
+.hist-filter-btn{height:26px;padding:0 10px;border:1px solid var(--border2);border-radius:99px;background:transparent;color:var(--text3);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s}
+.hist-filter-btn.active{background:rgba(124,159,255,0.1);color:var(--blue);border-color:rgba(124,159,255,0.3)}
 </style>
 </head>
 <body>
@@ -1557,6 +1561,10 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
       </div>
 
       <div class="draw-buffer-banner" id="drawBufferBanner"></div>
+      <div id="alertRegressionBanner" style="display:none;margin:12px 0 0;padding:10px 14px;background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.25);border-radius:var(--radius-lg)">
+        <div style="font-size:12px;font-weight:700;color:#FF6B6B;margin-bottom:6px">⚠️ Joueurs en régression (2 semaines sans valider)</div>
+        <div id="alertRegressionList" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
 
       <div class="draw-section">
         <div class="draw-row">
@@ -1632,6 +1640,13 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
               onclick="toggleSection('historySection','historyToggle')">▾</span>
       </div>
       <div class="section-body collapsed" id="historySection" style="max-height:0">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 4px">
+          <button class="hist-filter-btn active" id="hfAll" onclick="setHistFilter('all',this)">Tous</button>
+          <button class="hist-filter-btn" id="hfWeekly" onclick="setHistFilter('weekly',this)">📅 Hebdo</button>
+          <button class="hist-filter-btn" id="hfManual" onclick="setHistFilter('manual',this)">✏️ Manuel</button>
+          <button class="hist-filter-btn" id="hfPresent" onclick="setHistFilter('present',this)">🟣 Présents</button>
+          <button class="hist-filter-btn" id="hfReplace" onclick="setHistFilter('replace',this)">🔄 Remplacements</button>
+        </div>
         <div class="hist-list" id="histList" style="margin-top:6px">
           <span class="empty">Chargement…</span>
         </div>
@@ -3172,6 +3187,11 @@ async function archiveWeekFromParticipants(){
   if(!confirm(`Archiver la semaine ?\n\n${eligible.length}/${participants.length} joueur(s) éligibles.\nLes coffres seront réinitialisés pour tout le monde.\n\nCette action est irréversible.`))return;
   setBusy(true);
   const now=new Date().toISOString();
+  // Récupérer les réponses du sondage pour les archiver avec la semaine
+  const {data:pollSnap} = await sb.from('tdd_poll').select('participant_id,response');
+  const pollMap = {};
+  (pollSnap||[]).forEach(r=>{ pollMap[r.participant_id]=r.response; });
+
   const ops=participants.map(p=>{
     const validated=isEligible(p);
     const days=getCoffres(p);
@@ -3180,7 +3200,9 @@ async function archiveWeekFromParticipants(){
       sb.from('weeks_history').insert({
         participant_id:p.id,participant_name:p.name,
         validated,days_done:daysDone,
-        coffres_snapshot:p.coffres_days,power_snapshot:p.power_t1||null,archived_at:now
+        coffres_snapshot:p.coffres_days,power_snapshot:p.power_t1||null,
+        poll_response:pollMap[p.id]||null,
+        archived_at:now
       }),
       validated
         ?sb.from('participants').update({weeks_validated:(p.weeks_validated||0)+1,coffres_days:JSON.stringify([false,false,false,false,false])}).eq('id',p.id)
@@ -3848,6 +3870,7 @@ function renderStatsCards(){
         <div class="week-hist">${weekRows}</div>
       </div>`:''}
       ${badges.length?`<div class="stat-badge-row">${badges.join('')}</div>`:''}
+      ${isAdminOrStaff()?`<div style="padding:10px 14px 14px"><div class="stat-section-title" style="margin-top:0;padding-top:0;border-top:none">📝 Note interne</div><textarea id="note_${p.id}" placeholder="Note visible uniquement par admin/staff..." onblur="savePlayerNote(${p.id},this.value)" style="width:100%;min-height:48px;resize:vertical;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:7px 10px;font-family:inherit;font-size:12px;color:var(--text);box-sizing:border-box;outline:none;transition:border-color .2s" onfocus="this.style.borderColor='var(--blue)'" onblur="this.style.borderColor='var(--border)';savePlayerNote(${p.id},this.value)">${(p.note||'').replace(/</g,'&lt;')}</textarea></div>`:''}
     </div>`;
   }).join('');
   if(!sorted.length)grid.innerHTML=`<div style="padding:20px;color:var(--text3);font-style:italic;font-size:13px">Aucun joueur pour "${statsSearchFilter}".</div>`;
@@ -4618,6 +4641,98 @@ async function exportPlayersXlsx(){
   XLSX.writeFile(wb, 'joueurs_nains_de_mithril_'+date+'.xlsx');
   toast('📥 '+sorted.length+' joueurs exportés');
 }
+
+
+async function savePlayerNote(playerId, note){
+  if(!isAdminOrStaff()||!sb) return;
+  const val = note.trim()||null;
+  await sb.from('participants').update({note:val}).eq('id',playerId);
+  const p = participants.find(x=>x.id===playerId);
+  if(p) p.note = val;
+}
+
+
+/* ══ FONCTIONNALITÉS NOUVELLES ══════════════════════════════════════════ */
+
+/* ── Feat 1 : Historique sondage — affiché dans la fiche joueur ── */
+function getPollHistory(playerName){
+  return weeksHistory.filter(w=>w.participant_name===playerName&&w.poll_response)
+    .sort((a,b)=>new Date(b.archived_at)-new Date(a.archived_at));
+}
+const POLL_LABELS = {present:'✅ Présent', remplacant:'🔄 Remplaçant', absent:'❌ Absent'};
+
+/* ── Feat 2 : Notes joueur ── */
+async function savePlayerNote(playerId, note){
+  if(!isAdminOrStaff()||!sb) return;
+  const val = note.trim()||null;
+  const {error} = await sb.from('participants').update({note:val}).eq('id',playerId);
+  if(!error){ const p=participants.find(x=>x.id===playerId); if(p) p.note=val; }
+}
+
+/* ── Feat 3 : Alerte régression coffres ── */
+function updateRegressionAlert(){
+  const banner = document.getElementById('alertRegressionBanner');
+  const list   = document.getElementById('alertRegressionList');
+  if(!banner||!list) return;
+  const regressing = participants.filter(p=>{
+    const w = getPlayerWeeks(p);
+    if(w.length < 2) return false;
+    const last2 = w.slice(-2);
+    return !last2[0].validated && !last2[1].validated; // 2 semaines consécutives sans valider
+  });
+  if(!regressing.length){ banner.style.display='none'; return; }
+  banner.style.display='';
+  list.innerHTML = regressing.map(p=>`
+    <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 10px;background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.2);border-radius:99px;color:#FF6B6B;font-weight:700">
+      ${p.is_priority?'⭐ ':''} ${p.name}
+    </span>`).join('');
+}
+
+/* ── Feat 4 : Filtres historique + onglet remplacements ── */
+let _histFilter = 'all';
+function setHistFilter(filter, btn){
+  _histFilter = filter;
+  document.querySelectorAll('.hist-filter-btn').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  renderHistFiltered();
+}
+
+function renderHistFiltered(){
+  const el = document.getElementById('histList');
+  if(!el) return;
+  let filtered = [...history];
+  if(_histFilter === 'weekly')  filtered = filtered.filter(h=>h.is_weekly);
+  if(_histFilter === 'manual')  filtered = filtered.filter(h=>h.is_manual);
+  if(_histFilter === 'present') filtered = filtered.filter(h=>h.is_present_draw);
+  if(_histFilter === 'replace'){
+    // Remplacements = tirages hebdo dont le driver ou vip diffère de ce qui était prévu
+    // On détecte via weekly_draws : trouver les entrées is_weekly où le nom a changé
+    filtered = filtered.filter(h=>h.is_weekly && h.replaced === true);
+    if(!filtered.length){
+      el.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text3);font-size:13px">Aucun remplacement enregistré.<br><span style="font-size:11px;opacity:.7">Les remplacements s'enregistrent automatiquement lors du remplacement d'un absent.</span></div>';
+      return;
+    }
+  }
+  // Rendu standard
+  if(!filtered.length){ el.innerHTML='<span class="empty">Aucune entrée.</span>'; return; }
+  el.innerHTML = filtered.slice(0,100).map(h=>{
+    const d = new Date(h.created_at).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    const badge = h.is_weekly?`<span style="font-size:10px;padding:1px 6px;background:rgba(124,159,255,0.1);border-radius:4px;color:var(--blue)">${h.week_day||'Hebdo'}</span>`
+                : h.is_manual?`<span style="font-size:10px;padding:1px 6px;background:rgba(255,184,77,0.1);border-radius:4px;color:var(--amber)">Manuel</span>`
+                : `<span style="font-size:10px;padding:1px 6px;background:rgba(183,138,255,0.1);border-radius:4px;color:var(--purple)">Présents</span>`;
+    const replaceBadge = h.replaced?`<span style="font-size:10px;padding:1px 6px;background:rgba(79,209,165,0.1);border-radius:4px;color:#4FD1A5">🔄 Remplacé</span>`:'';
+    return `<div class="hist-row">
+      <span class="hist-date">${d}</span>
+      <span class="hist-name drv">${h.driver}</span>
+      <span style="color:var(--text3);font-size:11px">→</span>
+      <span class="hist-name vip">${h.vip}</span>
+      ${badge}${replaceBadge}
+    </div>`;
+  }).join('');
+}
+
+/* ── Feat 5 : Badge ⭐ sur les lignes du planning ── */
+// (voir rendu dans renderWeeklyPlanning — driverIsStaff/vipIsStaff déjà injectés)
 
 function onSearch(){searchFilter=document.getElementById('searchInput').value.toLowerCase();document.getElementById('searchClear').classList.toggle('show',searchFilter.length>0);render();}
 function clearSearch(){document.getElementById('searchInput').value='';searchFilter='';document.getElementById('searchClear').classList.remove('show');render();}
