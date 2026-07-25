@@ -1702,6 +1702,7 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
           <button class="btn" onclick="loadAll()">↻ Actualiser</button>
           <button class="btn" onclick="exportPlayersXlsx()" title="Exporter la liste des joueurs en Excel">📥 Export Excel</button>
           <button class="btn" onclick="openRepairModal()" title="Réparer l'historique d'un joueur renommé" style="display:none" id="btnRepairHistory">🔧 Réparer historique</button>
+          <button class="btn" onclick="recalcDrawStats()" title="Recalculer les stats de tirage depuis l'historique" style="display:none" id="btnRecalcStats">🔄 Recalculer stats</button>
           <button class="btn btn-gold" id="archiveWeekParticipantsBtn" onclick="archiveWeekFromParticipants()" style="display:none">📅 Archiver la semaine</button>
         </div>
       </div>
@@ -2736,10 +2737,19 @@ async function confirmReplace(newPlayerName){
     }
   }
 
-  // Mettre à jour le compteur du remplaçant
+  const countField = sanctionRole==='driver' ? 'driver_count' : 'vip_count';
+
+  // Décrémenter le compteur de l'absent (A n'a pas joué)
+  const absent = participants.find(x=>x.name===sanctionPlayerName);
+  if(absent && (absent[countField]||0) > 0){
+    const newCount = (absent[countField]||0) - 1;
+    await sb.from('participants').update({[countField]: newCount}).eq('id', absent.id);
+    absent[countField] = newCount;
+  }
+
+  // Incrémenter le compteur du remplaçant (B a joué à la place)
   const p = participants.find(x=>x.name===newPlayerName);
   if(p){
-    const countField = sanctionRole==='driver' ? 'driver_count' : 'vip_count';
     await sb.from('participants').update({[countField]:(p[countField]||0)+1}).eq('id',p.id);
     p[countField]=(p[countField]||0)+1;
   }
@@ -2849,6 +2859,7 @@ function showApp(){
   const archiveBtn=document.getElementById('archiveWeekParticipantsBtn');
   if(archiveBtn)archiveBtn.style.display=isAdminOrStaff()?'inline-flex':'none';
   const repairBtn=document.getElementById('btnRepairHistory');if(repairBtn)repairBtn.style.display=isAdmin()?'':'none';
+  const recalcBtn=document.getElementById('btnRecalcStats');if(recalcBtn)recalcBtn.style.display=isAdmin()?'':'none';
   const priorityWrap=document.getElementById('priorityToggleWrap');if(priorityWrap)priorityWrap.style.display=isAdmin()?'flex':'none';
   if(isAdmin())loadUsers();
   loadPermConfig();
@@ -4904,6 +4915,58 @@ function subscribeLogsRT(){
       if(el && el.closest('#logsSection')?.style.display !== 'none') renderLogs();
     })
     .subscribe();
+}
+
+
+async function recalcDrawStats(){
+  if(!isAdmin()) return;
+  if(!confirm('Recalculer les stats de tirage (driver_count / vip_count) de tous les joueurs depuis l\'historique ?\n\nCela corrige les compteurs si des remplacements ont créé des incohérences.\nOpération irréversible.')) return;
+  if(!sb) return;
+  setBusy(true);
+
+  // Compter depuis historique (is_weekly = true uniquement = tirages officiels)
+  const {data: hist, error} = await sb.from('historique')
+    .select('driver, vip')
+    .eq('is_weekly', true);
+
+  if(error || !hist){
+    setBusy(false);
+    toast('Erreur lors du chargement de l\'historique ❌');
+    return;
+  }
+
+  // Compter driver_count et vip_count par joueur
+  const driverCounts = {};
+  const vipCounts = {};
+  hist.forEach(h => {
+    if(h.driver) driverCounts[h.driver] = (driverCounts[h.driver]||0) + 1;
+    if(h.vip)    vipCounts[h.vip]       = (vipCounts[h.vip]||0)       + 1;
+  });
+
+  // Mettre à jour chaque participant
+  const updates = participants.map(p => ({
+    id:           p.id,
+    driver_count: driverCounts[p.name] || 0,
+    vip_count:    vipCounts[p.name]    || 0,
+  }));
+
+  // Appliquer en batch
+  let errors = 0;
+  for(const u of updates){
+    const {error: e} = await sb.from('participants')
+      .update({driver_count: u.driver_count, vip_count: u.vip_count})
+      .eq('id', u.id);
+    if(e) errors++;
+    // Mettre à jour localement
+    const p = participants.find(x=>x.id===u.id);
+    if(p){ p.driver_count=u.driver_count; p.vip_count=u.vip_count; }
+  }
+
+  await loadAll();
+  setBusy(false);
+  writeLog('system', `a recalculé les stats de tirage depuis l'historique`);
+  if(errors) toast(`⚠️ ${errors} erreur(s) lors de la mise à jour`);
+  else toast(`✅ Stats de tirage recalculées pour ${updates.length} joueurs`);
 }
 
 function onSearch(){searchFilter=document.getElementById('searchInput').value.toLowerCase();document.getElementById('searchClear').classList.toggle('show',searchFilter.length>0);render();}
