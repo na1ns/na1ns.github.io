@@ -2065,6 +2065,7 @@ let searchFilter='',sortAlpha=false,statSort='name';
 let currentUser=null;
 let evNbTeams=1,evRoles={},evTeams=null,evDragSrc=null,evTeamsLoaded=false;
 let evAsymMode=false;   // mode asymétrique (grosse équipe A + petite équipe B)
+let _evSaving=false;    // true pendant saveEvTeamsToDB pour ignorer le realtime
 let evAsymSizeA=25;     // nombre de joueurs dans la grosse équipe A
 let evElPriority=false; // les joueurs les plus forts vont en Électrons libres en premier
 let weeklyDrawsData=[];
@@ -3005,6 +3006,7 @@ function subscribeRT(){
       initEvRoles();renderEventPlayers();updateEvBanner();
     })
     .on('postgres_changes',{event:'*',schema:'public',table:'event_teams'},async()=>{
+      if(_evSaving)return; // ignore pendant un save en cours (DELETE + INSERT)
       const{data}=await sb.from('event_teams').select('*,participants(*)').order('position');
       if(data&&data.length>0){
         const teams={A:null,B:null};
@@ -5352,7 +5354,9 @@ function evClearSearch(){document.getElementById('evSearchInput').value='';docum
 
 async function saveEvTeamsToDB(){
   if(!sb||!evTeams)return;
-  await sb.from('event_teams').delete().neq('id',0);
+  _evSaving=true;
+
+  // Construire les nouvelles lignes
   const rows=[];
   ['A','B'].forEach(tk=>{
     if(!evTeams[tk])return;
@@ -5361,8 +5365,21 @@ async function saveEvTeamsToDB(){
       players.forEach((p,i)=>{rows.push({team_key:tk,cat_key:cat.key,player_id:p.id,position:i,updated_at:new Date().toISOString()});});
     });
   });
-  if(rows.length)await sb.from('event_teams').insert(rows);
+
+  // Supprimer et réinsérer dans une seule transaction via RPC si possible
+  // sinon : INSERT d'abord dans une table temporaire puis swap — ou simplement
+  // désactiver le realtime le temps de l'opération complète
+  await sb.from('event_teams').delete().neq('id',0);
+  if(rows.length) await sb.from('event_teams').insert(rows);
+
   evTeamsLoaded=true;
+  // Garder le flag actif suffisamment longtemps pour que le realtime
+  // ne reçoive pas les événements DELETE/INSERT intermédiaires
+  setTimeout(()=>{
+    _evSaving=false;
+    // Forcer un render depuis evTeams local (pas depuis la DB)
+    renderEventTeams();
+  }, 1500);
 }
 
 function renderEventPlayers(){
