@@ -5480,20 +5480,30 @@ async function balanceTeams(){
     const fmtPow = v => v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
     toast(`⚡ A : ${groupA.length} joueurs (${fmtPow(powA)}) · B : ${groupB.length} joueurs (${fmtPow(powB)})`);
   } else {
-    // Tous les joueurs sélectionnés (starters + subs) triés par puissance
-    const all = [...starters, ...subs].sort((a,b)=>(b.power_t1||0)-(a.power_t1||0));
-    // Répartition équilibrée par puissance
-    const [groupA, groupB] = splitBalanced(all);
-    // Les 20 premiers de chaque groupe = titulaires, le reste = remplaçants
+    // Répartir équitablement en RESPECTANT les rôles titulaire/remplaçant choisis
+    // Les starters restent titulaires, les subs restent remplaçants
+
+    // Répartir les titulaires équitablement par puissance entre les 2 équipes
+    const [startersA, startersB] = splitBalanced(starters);
+
+    // Si trop de titulaires pour les slots (20 par équipe), le surplus va en SUB
     const STARTER_SLOTS = CATEGORIES.filter(c=>c.key!=='SUB').reduce((s,c)=>s+c.size, 0);
-    const titA = groupA.slice(0, STARTER_SLOTS);
-    const subA = groupA.slice(STARTER_SLOTS);
-    const titB = groupB.slice(0, STARTER_SLOTS);
-    const subB = groupB.slice(STARTER_SLOTS);
-    evTeams={A:buildOneTeam(titA, subA), B:buildOneTeam(titB, subB)};
+    const titA   = startersA.slice(0, STARTER_SLOTS);
+    const overA  = startersA.slice(STARTER_SLOTS); // excédent de titulaires → SUB
+    const titB   = startersB.slice(0, STARTER_SLOTS);
+    const overB  = startersB.slice(STARTER_SLOTS);
+
+    // Répartir les remplaçants équitablement
+    const [subsA, subsB] = splitBalanced(subs);
+
+    // SUB = remplaçants + excédent de titulaires (limité à 10)
+    const subPoolA = [...overA, ...subsA].slice(0, TOTAL_SUBS);
+    const subPoolB = [...overB, ...subsB].slice(0, TOTAL_SUBS);
+
+    evTeams={A:buildOneTeam(titA, subPoolA), B:buildOneTeam(titB, subPoolB)};
     const powA=teamTotalPower(evTeams.A), powB=teamTotalPower(evTeams.B);
     const fmtPow=v=>v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
-    toast(`⚖️ A : ${groupA.length} joueurs (${fmtPow(powA)}) · B : ${groupB.length} joueurs (${fmtPow(powB)})`);
+    toast(`⚖️ A : ${startersA.length} tit. + ${subPoolA.length} rem. (${fmtPow(powA)}) · B : ${startersB.length} tit. + ${subPoolB.length} rem. (${fmtPow(powB)})`);
   }
   await saveEvTeamsToDB();
   if(!evAsymMode) toast('⚖️ Équipes sauvegardées !');
