@@ -5480,11 +5480,17 @@ async function balanceTeams(){
     const fmtPow = v => v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
     toast(`⚡ A : ${groupA.length} joueurs (${fmtPow(powA)}) · B : ${groupB.length} joueurs (${fmtPow(powB)})`);
   } else {
-    // Répartir équitablement en RESPECTANT les rôles titulaire/remplaçant choisis
-    // Les starters restent titulaires, les subs restent remplaçants
+    // Priorité Option A : les joueurs ev_priority=true sont placés en premiers starters
+    const priorityStarters = starters.filter(p=>p.ev_priority).sort((a,b)=>(b.power_t1||0)-(a.power_t1||0));
+    const normalStarters   = starters.filter(p=>!p.ev_priority).sort((a,b)=>(b.power_t1||0)-(a.power_t1||0));
+    // Répartir d'abord les prioritaires puis les normaux
+    const [prioA, prioB] = splitBalanced(priorityStarters);
+    const [normA, normB] = splitBalanced(normalStarters);
+    const orderedA = [...prioA, ...normA];
+    const orderedB = [...prioB, ...normB];
 
     // Répartir les titulaires équitablement par puissance entre les 2 équipes
-    const [startersA, startersB] = splitBalanced(starters);
+    const [startersA, startersB] = [orderedA, orderedB];
 
     // Si trop de titulaires pour les slots (20 par équipe), le surplus va en SUB
     const STARTER_SLOTS = CATEGORIES.filter(c=>c.key!=='SUB').reduce((s,c)=>s+c.size, 0);
@@ -5501,6 +5507,16 @@ async function balanceTeams(){
     const subPoolB = [...overB, ...subsB].slice(0, TOTAL_SUBS);
 
     evTeams={A:buildOneTeam(titA, subPoolA), B:buildOneTeam(titB, subPoolB)};
+
+    // Retirer ev_priority des joueurs effectivement placés (Option A)
+    const placedIds = new Set();
+    ['A','B'].forEach(tk=>{ if(!evTeams[tk])return; CATEGORIES.forEach(cat=>(evTeams[tk][cat.key]||[]).forEach(p=>placedIds.add(p.id))); });
+    const toReset = participants.filter(p=>p.ev_priority && placedIds.has(p.id));
+    if(toReset.length){
+      toReset.forEach(p=>{ p.ev_priority=false; });
+      Promise.all(toReset.map(p=>sb.from('participants').update({ev_priority:false}).eq('id',p.id)));
+    }
+
     const powA=teamTotalPower(evTeams.A), powB=teamTotalPower(evTeams.B);
     const fmtPow=v=>v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
     toast(`⚖️ A : ${startersA.length} tit. + ${subPoolA.length} rem. (${fmtPow(powA)}) · B : ${startersB.length} tit. + ${subPoolB.length} rem. (${fmtPow(powB)})`);
@@ -5592,10 +5608,49 @@ function renderEventTeams(){
     }).join('');
     return `<div class="ev-team-card"><div class="ev-team-header ${headerCls}"><span class="ev-team-title ${headerCls}">⚔️ ${label}</span><span class="ev-team-power">${stCount} tit. · ${subCount} rempl.</span></div><div class="ev-team-body">${catsHtml}</div><button class="ev-copy-btn" onclick="evCopyTeam('${teamKey}','${label}')">📋 Copier ${label}</button></div>`;
   };
+  // Identifier les joueurs non placés (sélectionnés mais absents des équipes)
+  const allSelected = [...participants].filter(p=>evRoles[p.id]==='starter'||evRoles[p.id]==='sub');
+  const allPlaced = new Set();
+  ['A','B'].forEach(tk=>{
+    if(!evTeams[tk])return;
+    CATEGORIES.forEach(cat=>{ (evTeams[tk][cat.key]||[]).forEach(p=>allPlaced.add(p.id)); });
+  });
+  const unplaced = allSelected.filter(p=>!allPlaced.has(p.id)).sort((a,b)=>(b.power_t1||0)-(a.power_t1||0));
+
+  const unplacedHtml = unplaced.length ? `
+    <div style="margin-top:18px;background:var(--surface);border:1px solid rgba(255,184,77,0.3);border-radius:var(--radius-xl);padding:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">
+        ⏳ Non placés (${unplaced.length}) — Marquer pour priorité la prochaine fois
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${unplaced.map(p=>`
+          <div style="display:flex;align-items:center;gap:6px;padding:5px 10px;background:${p.ev_priority?'rgba(255,184,77,0.12)':'var(--surface2)'};border:1px solid ${p.ev_priority?'rgba(255,184,77,0.4)':'var(--border)'};border-radius:99px;cursor:pointer;transition:all .15s" onclick="toggleEvPriority(${p.id},this)">
+            <span style="font-size:12px">${p.ev_priority?'⏳':'○'}</span>
+            <span style="font-size:12px;font-weight:600;color:var(--text)">${p.name}</span>
+            <span style="font-size:10px;color:var(--text3)">${p.power_t1?(p.power_t1/1e6).toFixed(1)+'M':''}</span>
+          </div>`).join('')}
+      </div>
+    </div>` : '';
+
   result.innerHTML=`${balanceHtml}<div class="ev-teams-grid${evTeams.B?' two':''}">
     ${renderTeam('A','Équipe A','teamA')}
     ${evTeams.B?renderTeam('B','Équipe B','teamB'):''}
-  </div>`;
+  </div>${unplacedHtml}`;
+}
+
+async function toggleEvPriority(playerId, el){
+  if(!isAdminOrStaff()) return;
+  const p = participants.find(x=>x.id===playerId);
+  if(!p) return;
+  p.ev_priority = !p.ev_priority;
+  await sb.from('participants').update({ev_priority: p.ev_priority}).eq('id', playerId);
+  // Mettre à jour le visuel
+  const icon = el.querySelector('span:first-child');
+  const chip = el;
+  if(icon) icon.textContent = p.ev_priority ? '⏳' : '○';
+  chip.style.background = p.ev_priority ? 'rgba(255,184,77,0.12)' : 'var(--surface2)';
+  chip.style.borderColor = p.ev_priority ? 'rgba(255,184,77,0.4)' : 'var(--border)';
+  toast(p.ev_priority ? `⏳ ${p.name} prioritaire pour la prochaine fois` : `${p.name} retiré de la liste prioritaire`);
 }
 
 function evCopyTeam(teamKey,label){
