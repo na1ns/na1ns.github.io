@@ -5298,7 +5298,8 @@ function initEvRoles(){
 }
 
 async function evSetRole(playerId,role){
-  evRoles[playerId]=role;evTeams=null;
+  evRoles[playerId]=role;
+  // Ne pas reset evTeams pour conserver les équipes déjà équilibrées
   await sb.from('event_roles').upsert({player_id:playerId,role,nb_teams:evNbTeams,updated_at:new Date().toISOString()},{onConflict:'player_id'});
   updateEvBanner();renderEventPlayers();renderEventTeams();
 }
@@ -5306,7 +5307,9 @@ async function evSetRole(playerId,role){
 async function evSelectAll(role){
   participants.forEach(p=>{evRoles[p.id]=role;});
   if(participants.length)await Promise.all(participants.map(p=>sb.from('event_roles').upsert({player_id:p.id,role,nb_teams:evNbTeams,updated_at:new Date().toISOString()},{onConflict:'player_id'})));
-  updateEvBanner();renderEventPlayers();evTeams=null;renderEventTeams();
+  // Sélection globale = réinitialiser les équipes (changement massif)
+  evTeams=null;
+  updateEvBanner();renderEventPlayers();renderEventTeams();
 }
 
 async function resetTeams(){
