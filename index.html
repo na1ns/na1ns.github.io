@@ -1759,6 +1759,50 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
       </div>
       </div>
 
+    <!-- TEMPÊTE DU CANYON -->
+    <div class="section" id="secCanyon">
+      <div class="section-header">
+        <div class="section-header-left" onclick="toggleSection('canyonBody','canyonToggle')">
+          <span class="section-title">🏜️ Tempête du Canyon</span>
+        </div>
+        <span class="section-toggle collapsed" id="canyonToggle"
+              onclick="toggleSection('canyonBody','canyonToggle')">▾</span>
+      </div>
+      <div class="section-body collapsed" id="canyonBody" style="max-height:0">
+        <div style="margin-top:10px;margin-bottom:1.5rem">
+
+          <!-- Config -->
+          <div class="ev-config-row">
+            <div class="ev-config-block">
+              <span class="label" style="margin-bottom:4px">Nombre d'équipes</span>
+              <div class="ev-nb-btns">
+                <button class="ev-nb-btn active" id="canyonNb1" onclick="setCanyonNbTeams(1)">1 équipe</button>
+                <button class="ev-nb-btn" id="canyonNb2" onclick="setCanyonNbTeams(2)">2 équipes</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Liste des joueurs -->
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 8px;align-items:center">
+            <button class="btn" style="height:30px;font-size:12px" onclick="canyonSelectAll('starter')">✅ Tous titulaires</button>
+            <button class="btn" style="height:30px;font-size:12px" onclick="canyonSelectAll('none')">✗ Tout désélectionner</button>
+            <input id="canyonSearch" type="text" placeholder="Rechercher…" oninput="renderCanyonPlayers()" style="height:30px;padding:0 10px;background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius-lg);color:var(--text);font-size:12px;flex:1;min-width:120px">
+          </div>
+          <div id="canyonPlayersList" style="display:flex;flex-direction:column;gap:4px;max-height:320px;overflow-y:auto;margin-bottom:12px"></div>
+
+          <!-- Bouton équilibrer -->
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-primary" onclick="balanceCanyonTeams()">⚖️ Équilibrer et sauvegarder</button>
+            <button class="btn" onclick="resetCanyonTeams()" style="color:var(--red);border-color:rgba(255,107,107,0.3)">↺ Réinitialiser</button>
+            <button class="btn" id="canyonCopyBtn" onclick="copyCanyonText()" style="display:none">📋 Copier</button>
+          </div>
+
+          <!-- Résultat équipes -->
+          <div id="canyonTeamsResult" style="margin-top:16px"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- ÉVÉNEMENTS -->
     <div class="section" id="secEvents">
       <div class="section-header">
@@ -2085,14 +2129,15 @@ const PERM_SECTIONS=[
   {id:'sectionParticipants', label:'Participants', icon:'👥'},
   {id:'sectionStats',   label:'Statistiques',  icon:'📊'},
   {id:'secEvents',      label:'Événements',    icon:'⚔️'},
+  {id:'secCanyon',      label:'Canyon',        icon:'🏜️'},
   {id:'secArchive',     label:'Archives',      icon:'📦'},
   {id:'logsSection',    label:'Logs',          icon:'📋'},
   {id:'aboutSection',   label:'À propos',      icon:'ℹ️'},
 ];
 
 const DEFAULT_PERM={
-  staff: {secTirage:true,secHist:true,sectionParticipants:true,sectionStats:true,secEvents:true,secArchive:true},
-  member:{secTirage:true,secHist:true,sectionParticipants:false,sectionStats:false,secEvents:true,secArchive:true}
+  staff: {secTirage:true,secHist:true,sectionParticipants:true,sectionStats:true,secEvents:true,secArchive:true,secCanyon:true},
+  member:{secTirage:true,secHist:true,sectionParticipants:false,sectionStats:false,secEvents:true,secArchive:true,secCanyon:true}
 };
 let permConfig=JSON.parse(JSON.stringify(DEFAULT_PERM));
 let permTableExists=true;
@@ -2977,6 +3022,7 @@ async function loadAll(){
     setStatus('on','Connecté · temps réel actif');
     initEvRoles();render();renderEventPlayers();renderEventTeams();
     if(canSeeSection('sectionStats'))renderStats();
+  renderCanyonPlayers();
   loadPollResults();
     loadDrawBuffer();
   }catch(e){setStatus('err','Erreur : '+(e.message||e));}
@@ -3127,12 +3173,12 @@ function copyPlanningText(){
   if(!weeklyDrawsData.length){toast('Aucun planning à copier');return;}
   const weekStart=weeklyDrawsData[0].week_start;
   const weekEnd=new Date(weekStart);weekEnd.setDate(weekEnd.getDate()+6);
-  let txt=`Planning Train des Nains de Mithril\nSemaine du ${formatDateShort(weekStart)} au ${weekEnd.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})}\n\n`;
+  let txt='';
   weeklyDrawsData.forEach(draw=>{
     const dayName=DAYS_LABELS_WEEK[draw.day_index]||`Jour ${draw.day_index+1}`;
     txt+=`${dayName} - Chauffeur: ${draw.driver} / VIP: ${draw.vip}\n`;
   });
-  txt+='\nBravo a tous les participants !';
+  txt=txt.trim();
   txt = txt.trim().slice(0, 500);
 
 navigator.clipboard.writeText(txt)
@@ -3570,13 +3616,13 @@ function showCurrentWeeklyDraws(){
 
 function generateWeeklyText(draws,weekStart){
   const weekEnd=new Date(weekStart);weekEnd.setDate(weekEnd.getDate()+6);
-let txt=`Planning Train des Nains de Mithril\nSemaine du ${formatDateShort(weekStart)} au ${weekEnd.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})}\n\n`;
+let txt='';
   draws.forEach(d=>{
     const day=d.day!==undefined?d.day:d.day_index;
     const dayName=DAYS_LABELS_WEEK[day]||`Jour ${day+1}`;
     txt+=`${dayName} - Chauffeur: ${d.driver} / VIP: ${d.vip}\n`;
   });
-  txt+='\nBravo a tous les participants !';
+  txt=txt.trim();
   return txt.trim().slice(0, 500);
 }
 
@@ -4976,6 +5022,144 @@ async function recalcDrawStats(){
   writeLog('system', `a recalculé les stats de tirage depuis l'historique`);
   if(errors) toast(`⚠️ ${errors} erreur(s) lors de la mise à jour`);
   else toast(`✅ Stats de tirage recalculées pour ${updates.length} joueurs`);
+}
+
+
+/* ══════════════════════════════════════════════════════
+   TEMPÊTE DU CANYON — Équilibrage simple sans catégories
+   ══════════════════════════════════════════════════════ */
+
+let canyonNbTeams = 1;
+let canyonRoles   = {};   // {playerId: 'starter'|'none'}
+let canyonTeams   = null; // {A: [...players], B: [...players]}
+
+function setCanyonNbTeams(n){
+  canyonNbTeams = n;
+  document.getElementById('canyonNb1').classList.toggle('active', n===1);
+  document.getElementById('canyonNb2').classList.toggle('active', n===2);
+  canyonTeams = null;
+  renderCanyonTeams();
+}
+
+function renderCanyonPlayers(){
+  const list = document.getElementById('canyonPlayersList');
+  if(!list) return;
+  const search = (document.getElementById('canyonSearch')||{}).value||'';
+  const sl = search.toLowerCase();
+  const sorted = [...participants].sort((a,b)=>(b.power_t1||0)-(a.power_t1||0));
+  const filtered = sl ? sorted.filter(p=>p.name.toLowerCase().includes(sl)) : sorted;
+  if(!filtered.length){ list.innerHTML='<div style="padding:10px;font-size:13px;color:var(--text3)">Aucun participant.</div>'; return; }
+  list.innerHTML = filtered.map(p=>{
+    const role = canyonRoles[p.id]||'none';
+    const isIn = role==='starter';
+    const pow  = p.power_t1?(p.power_t1/1e6).toFixed(1)+'M':'';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface);border:1px solid ${isIn?'var(--blue)':'var(--border)'};border-radius:var(--radius-lg);cursor:pointer;transition:all .15s" onclick="toggleCanyonPlayer(${p.id},this)">
+      <span style="font-size:16px">${isIn?'✅':'⬜'}</span>
+      <span style="flex:1;font-size:13px;font-weight:600;color:var(--text)">${p.name}</span>
+      <span style="font-size:11px;color:var(--text3)">${pow}</span>
+    </div>`;
+  }).join('');
+}
+
+function toggleCanyonPlayer(id, el){
+  const cur = canyonRoles[id]||'none';
+  canyonRoles[id] = cur==='starter'?'none':'starter';
+  const isIn = canyonRoles[id]==='starter';
+  el.style.borderColor = isIn?'var(--blue)':'var(--border)';
+  el.querySelector('span:first-child').textContent = isIn?'✅':'⬜';
+}
+
+async function canyonSelectAll(role){
+  participants.forEach(p=>{ canyonRoles[p.id]=role; });
+  renderCanyonPlayers();
+}
+
+function splitCanyonBalanced(players){
+  // Répartition serpentine par puissance décroissante
+  const sorted = [...players].sort((a,b)=>(b.power_t1||0)-(a.power_t1||0));
+  const A=[], B=[];
+  sorted.forEach((p,i)=>{ if(i%2===0)A.push(p); else B.push(p); });
+  return [A,B];
+}
+
+async function balanceCanyonTeams(){
+  const selected = participants.filter(p=>canyonRoles[p.id]==='starter');
+  if(!selected.length){ toast('Sélectionne au moins un joueur'); return; }
+  if(canyonNbTeams===1){
+    canyonTeams = {A: selected.sort((a,b)=>(b.power_t1||0)-(a.power_t1||0)), B:null};
+  } else {
+    const [A,B] = splitCanyonBalanced(selected);
+    canyonTeams = {A, B};
+    const fmtPow = v=>v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
+    const powA = A.reduce((s,p)=>s+(p.power_t1||0),0);
+    const powB = B.reduce((s,p)=>s+(p.power_t1||0),0);
+    toast(`⚖️ A : ${A.length} joueurs (${fmtPow(powA)}) · B : ${B.length} joueurs (${fmtPow(powB)})`);
+  }
+  renderCanyonTeams();
+  // Sauvegarder dans app_config
+  if(sb){
+    await sb.from('app_config').upsert({
+      key:'canyon_teams',
+      value: {
+        teams: {
+          A: (canyonTeams.A||[]).map(p=>p.id),
+          B: (canyonTeams.B||[]).map(p=>p.id)
+        },
+        updated_at: new Date().toISOString()
+      }
+    });
+  }
+}
+
+function renderCanyonTeams(){
+  const result = document.getElementById('canyonTeamsResult');
+  const copyBtn = document.getElementById('canyonCopyBtn');
+  if(!result) return;
+  if(!canyonTeams){result.innerHTML=''; if(copyBtn)copyBtn.style.display='none'; return;}
+  if(copyBtn) copyBtn.style.display='';
+
+  const renderList = (players, label, color) => {
+    if(!players||!players.length) return '';
+    return `<div style="flex:1;min-width:220px">
+      <div style="font-size:11px;font-weight:700;color:${color};letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">⚔️ ${label} (${players.length})</div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        ${players.map((p,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg)">
+          <span style="font-size:11px;font-weight:800;color:var(--text3);width:20px;text-align:center">${i+1}</span>
+          <span style="flex:1;font-size:13px;font-weight:600;color:var(--text)">${p.name}</span>
+          <span style="font-size:11px;color:var(--text3)">${p.power_t1?(p.power_t1/1e6).toFixed(1)+'M':''}</span>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  };
+
+  result.innerHTML = `<div style="display:flex;gap:16px;flex-wrap:wrap">
+    ${renderList(canyonTeams.A, 'Équipe A', 'var(--blue)')}
+    ${canyonTeams.B?renderList(canyonTeams.B, 'Équipe B', 'var(--cyan)'):''}
+  </div>`;
+}
+
+async function resetCanyonTeams(){
+  if(!confirm('Réinitialiser les équipes Canyon ?')) return;
+  canyonTeams = null;
+  canyonRoles = {};
+  renderCanyonPlayers();
+  renderCanyonTeams();
+  if(sb) await sb.from('app_config').delete().eq('key','canyon_teams');
+  toast('Équipes Canyon réinitialisées');
+}
+
+function copyCanyonText(){
+  if(!canyonTeams) return;
+  let txt = '';
+  if(canyonTeams.A){
+    txt += `Équipe A (${canyonTeams.A.length} joueurs) :\n`;
+    txt += canyonTeams.A.map(p=>`- ${p.name}`).join('\n');
+  }
+  if(canyonTeams.B){
+    txt += `\n\nÉquipe B (${canyonTeams.B.length} joueurs) :\n`;
+    txt += canyonTeams.B.map(p=>`- ${p.name}`).join('\n');
+  }
+  navigator.clipboard.writeText(txt).then(()=>toast('📋 Équipes Canyon copiées !'));
 }
 
 function onSearch(){searchFilter=document.getElementById('searchInput').value.toLowerCase();document.getElementById('searchClear').classList.toggle('show',searchFilter.length>0);render();}
