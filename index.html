@@ -1807,7 +1807,7 @@ body.light .replace-player-btn{background:rgba(0,0,0,.03);border:1px solid var(-
     <div class="section" id="secEvents">
       <div class="section-header">
         <div class="section-header-left" onclick="toggleSection('eventsSection','eventsToggle')">
-          <span class="section-title">⚔️ Tempête du désert </span>
+          <span class="section-title">⚔️ Tempête du désert</span>
         </div>
         <span class="section-toggle collapsed" id="eventsToggle"
               onclick="toggleSection('eventsSection','eventsToggle')">▾</span>
@@ -5185,6 +5185,125 @@ function copyCanyonText(){
   let txt = fmt(canyonTeams.A,'Équipe A');
   if(canyonTeams.B) txt += '\n' + fmt(canyonTeams.B,'Équipe B');
   navigator.clipboard.writeText(txt.trim()).then(()=>toast('📋 Équipes Canyon copiées !'));
+}
+
+
+/* ── Drag depuis zone non placés ── */
+let _evDragUnplacedId = null;
+
+function evUnplacedDragStart(event, playerId){
+  _evDragUnplacedId = playerId;
+  event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('text/plain', 'unplaced:'+playerId);
+  setTimeout(()=>{
+    const el = document.getElementById('unplaced-'+playerId);
+    if(el) el.style.opacity = '0.4';
+  }, 0);
+}
+
+function evUnplacedDragEnd(event){
+  if(_evDragUnplacedId){
+    const el = document.getElementById('unplaced-'+_evDragUnplacedId);
+    if(el) el.style.opacity = '1';
+  }
+  _evDragUnplacedId = null;
+}
+
+/* ── Drop depuis une équipe vers zone non placés ── */
+function evUnplacedZoneOver(event){
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+  event.currentTarget.style.borderColor = 'rgba(255,184,77,0.8)';
+  event.currentTarget.style.background  = 'rgba(255,184,77,0.06)';
+}
+
+function evUnplacedZoneLeave(event){
+  event.currentTarget.style.borderColor = 'rgba(255,184,77,0.4)';
+  event.currentTarget.style.background  = 'var(--surface)';
+}
+
+function evDropToUnplaced(event){
+  event.preventDefault();
+  event.currentTarget.style.borderColor = 'rgba(255,184,77,0.4)';
+  event.currentTarget.style.background  = 'var(--surface)';
+  const raw = event.dataTransfer.getData('text/plain')||'';
+  // Accepter seulement les joueurs venant d'une équipe (format: teamKey:catKey:playerId)
+  if(!raw || raw.startsWith('unplaced:')) return;
+  const parts = raw.split(':');
+  if(parts.length < 3) return;
+  const [teamKey, catKey, playerIdStr] = parts;
+  const playerId = parseInt(playerIdStr);
+  if(!evTeams || !evTeams[teamKey]) return;
+  const cat = evTeams[teamKey][catKey];
+  if(!cat) return;
+  const idx = cat.findIndex(p=>p.id===playerId);
+  if(idx === -1) return;
+  const [player] = cat.splice(idx, 1);
+  if(!evUnplaced.find(p=>p.id===player.id)) evUnplaced.push(player);
+  saveEvTeamsToDB();
+  saveEvUnplaced();
+  renderEventTeams();
+  toast(`${player.name} retiré vers Non placés`);
+}
+
+/* ── Drop depuis non placés vers catégorie équipe ── */
+function evDropFromUnplaced(event, teamKey, catKey){
+  event.preventDefault();
+  const playerId = _evDragUnplacedId || parseInt((event.dataTransfer.getData('text/plain')||'').split(':')[1]);
+  if(!playerId) return;
+  if(!evTeams || !evTeams[teamKey]) return;
+  const cat = evTeams[teamKey][catKey];
+  const catDef = CATEGORIES.find(c=>c.key===catKey);
+  if(!cat || !catDef) return;
+  if(cat.length >= catDef.size){
+    toast(`Catégorie ${catKey} pleine ! Retirez d'abord un joueur vers Non placés.`);
+    return;
+  }
+  const player = participants.find(p=>p.id===playerId);
+  if(!player) return;
+  cat.push(player);
+  evUnplaced = evUnplaced.filter(p=>p.id!==playerId);
+  saveEvTeamsToDB();
+  saveEvUnplaced();
+  renderEventTeams();
+  toast(`${player.name} ajouté en ${catKey} équipe ${teamKey}`);
+}
+
+
+function renderEvUnplacedZone(){
+  let zone = document.getElementById('evUnplacedZone');
+  if(!zone){
+    const result = document.getElementById('evTeamsResult');
+    if(!result) return;
+    zone = document.createElement('div');
+    zone.id = 'evUnplacedZone';
+    result.after(zone);
+  }
+  zone.innerHTML = `
+    <div style="margin-top:18px;background:var(--surface);border:2px dashed rgba(255,184,77,0.4);border-radius:var(--radius-xl);padding:16px"
+      ondragover="evUnplacedZoneOver(event)"
+      ondragleave="evUnplacedZoneLeave(event)"
+      ondrop="evDropToUnplaced(event)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:11px;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:.05em;flex:1">
+          ⏳ Non placés (${evUnplaced.length})
+        </span>
+        <button onclick="clearEvUnplaced()" style="height:24px;padding:0 8px;border-radius:99px;border:1px solid rgba(255,107,107,0.3);background:transparent;color:var(--red);font-size:11px;font-weight:700;cursor:pointer">↺ Réinitialiser</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;min-height:36px" id="evUnplacedList">
+        ${evUnplaced.length ? evUnplaced.map(p=>`
+          <div draggable="true"
+            id="unplaced-${p.id}"
+            ondragstart="evUnplacedDragStart(event,${p.id})"
+            ondragend="evUnplacedDragEnd(event)"
+            onclick="toggleEvPriority(${p.id},this)"
+            style="display:flex;align-items:center;gap:6px;padding:5px 10px;background:${p.ev_priority?'rgba(255,184,77,0.12)':'var(--surface2)'};border:1px solid ${p.ev_priority?'rgba(255,184,77,0.4)':'var(--border)'};border-radius:99px;cursor:grab;user-select:none;transition:all .15s">
+            <span style="font-size:11px">${p.ev_priority?'⏳':'○'}</span>
+            <span style="font-size:12px;font-weight:600;color:var(--text)">${p.name}</span>
+            <span style="font-size:10px;color:var(--text3)">${p.power_t1?(p.power_t1/1e6).toFixed(1)+'M':''}</span>
+          </div>`).join('') : '<span style="font-size:12px;color:var(--text3);font-style:italic;padding:6px">Glissez ici les joueurs à retirer des équipes</span>'}
+      </div>
+    </div>`;
 }
 
 function onSearch(){searchFilter=document.getElementById('searchInput').value.toLowerCase();document.getElementById('searchClear').classList.toggle('show',searchFilter.length>0);render();}
