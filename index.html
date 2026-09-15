@@ -4768,6 +4768,35 @@ async function evDropOnCat(e,toTeam,toCatKey){
 }
 function evDragEnd(){evDragSrcData=null;document.querySelectorAll('.ev-team-player').forEach(el=>{el.classList.remove('dragging-team');el.classList.remove('drag-over-team');});}
 
+async function replaceTeamPlayer(teamKey,catKey,idx){
+  if(!evTeams||!evTeams[teamKey]||!evTeams[teamKey][catKey])return;
+  const current=evTeams[teamKey][catKey][idx];
+  if(!current)return;
+  const placedIds=new Set();
+  ['A','B'].forEach(tk=>{
+    if(!evTeams[tk])return;
+    CATEGORIES.forEach(cat=>(evTeams[tk][cat.key]||[]).forEach(p=>placedIds.add(p.id)));
+  });
+  const candidates=sortTddPlayers(participants.filter(p=>!placedIds.has(p.id)&&evRoles[p.id]!=='none'));
+  if(!candidates.length){toast('Aucun joueur non placé disponible');return;}
+  const lines=candidates.map((p,n)=>{
+    const role=evRoles[p.id]==='starter'?'Titulaire':'Remplaçant';
+    const count=tddNonRetenus[p.id]||0;
+    const rot=count?` · 🔄 ×${count}`:'';
+    const pow=p.power_t1?` · ${Number(p.power_t1).toLocaleString('fr-FR')}`:'';
+    return `${n+1}. ${p.name} — ${role}${pow}${rot}`;
+  }).join('\n');
+  const answer=prompt(`Remplacer ${current.name} dans ${catKey} ?\n\nJoueurs non placés :\n${lines}\n\nEntre le numéro du joueur à faire entrer :`);
+  if(answer===null)return;
+  const n=parseInt(answer,10);
+  if(!Number.isInteger(n)||n<1||n>candidates.length){toast('Choix invalide');return;}
+  const replacement=candidates[n-1];
+  evTeams[teamKey][catKey][idx]=replacement;
+  await saveEvTeamsToDB();
+  renderEventTeams();
+  toast(`${replacement.name} remplace ${current.name} dans ${catKey} — Équipe ${teamKey}`);
+}
+
 async function switchTeam(fromTeam,fromCat,idx){
   if(!evTeams||!evTeams.B)return;const toTeam=fromTeam==='A'?'B':'A';
   const player=evTeams[fromTeam][fromCat].splice(idx,1)[0];
@@ -4797,7 +4826,8 @@ function renderEventTeams(){
       const players=team[cat.key]||[];const isEmpty=players.length===0;
       const playersHtml=players.map((p,i)=>{
         const switchBtn=hasOtherTeam?`<button onclick="switchTeam('${teamKey}','${cat.key}',${i})" style="background:rgba(255,255,255,0.04);border:1px solid var(--border2);border-radius:6px;cursor:pointer;font-size:11px;padding:2px 8px;color:var(--text2);white-space:nowrap;flex-shrink:0;transition:all .15s">↔ ${otherTeam}</button>`:'';
-        return `<div class="ev-team-player" data-ev-team="${teamKey}" data-ev-cat="${cat.key}" data-ev-idx="${i}" draggable="true" ondragstart="evDragStart(event,'${teamKey}','${cat.key}',${i})" ondragend="evDragEnd()"><span class="ev-pnum">${i+1}</span><span class="ev-pname">${p.name}</span>${switchBtn}<span style="font-size:11px;color:var(--text4);cursor:grab;flex-shrink:0">⠿</span></div>`;
+        const replaceBtn=`<button onclick="replaceTeamPlayer('${teamKey}','${cat.key}',${i})" title="Remplacer par un joueur non placé" style="background:rgba(124,159,255,0.07);border:1px solid rgba(124,159,255,0.2);border-radius:6px;cursor:pointer;font-size:11px;padding:2px 7px;color:var(--blue);white-space:nowrap;flex-shrink:0;transition:all .15s">⇄ Remplacer</button>`;
+        return `<div class="ev-team-player" data-ev-team="${teamKey}" data-ev-cat="${cat.key}" data-ev-idx="${i}" draggable="true" ondragstart="evDragStart(event,'${teamKey}','${cat.key}',${i})" ondragend="evDragEnd()"><span class="ev-pnum">${i+1}</span><span class="ev-pname">${p.name}</span>${replaceBtn}${switchBtn}<span style="font-size:11px;color:var(--text4);cursor:grab;flex-shrink:0">⠿</span></div>`;
       }).join('');
       const isFull=players.length>=cat.size;const dropZone=`<div class="ev-cat-drop" ondragover="evDropZoneOver(event,'${teamKey}','${cat.key}')" ondragleave="evDropZoneLeave(event)" ondrop="evDropOnCatUniversal(event,'${teamKey}','${cat.key}')" style="min-height:${isEmpty?'38px':'4px'};display:flex;align-items:center;justify-content:center;border-radius:6px;transition:all .15s">${isEmpty?`<span style="font-size:11px;color:var(--text3);font-style:italic">${isFull?'Plein':'Déposer ici'}</span>`:''}</div>`;
       return `<div class="ev-cat-block" style="border-left:2px solid ${cat.color}"><div class="ev-cat-header" style="background:${cat.bg}"><span class="ev-cat-title" style="color:${cat.color}">${cat.label}</span><span class="ev-cat-info">${players.length}/${cat.size}</span></div>${playersHtml}${dropZone}</div>`;
