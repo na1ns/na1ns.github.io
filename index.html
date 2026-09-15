@@ -2219,13 +2219,18 @@ async function loadAll(){
   try{
     const[{data:pData,error:pErr},{data:hData,error:hErr},{data:wData},{data:erData},{data:etData}]=await Promise.all([
       sb.from('participants').select('*').order('position',{ascending:true}),
-      sb.from('historique').select('*').order('created_at',{ascending:false}).limit(60),
+      sb.from('historique').select('*').order('created_at',{ascending:false}),
       sb.from('weeks_history').select('*').order('archived_at',{ascending:false}),
       sb.from('event_roles').select('*'),
       sb.from('event_teams').select('*,participants(*)').order('position')
     ]);
     if(pErr||hErr)throw pErr||hErr;
     participants=pData||[];history=hData||[];weeksHistory=wData||[];
+    // Afficher immédiatement les historiques dès que les données sont chargées.
+    // Ainsi, une erreur dans une autre section (TDD, Canyon, etc.) ne peut plus
+    // laisser ces deux zones bloquées sur « Chargement… ».
+    renderHistFiltered();
+    renderArchiveList();
     await loadTddNonRetenus();
     evRoles={};
     if(erData){
@@ -4736,6 +4741,7 @@ async function saveEvTeamsToDB(){
 
 function renderEventPlayers(){
   const list=document.getElementById('evPlayersList');
+  if(!list)return;
   if(!participants.length){list.innerHTML='<div style="padding:10px;font-size:13px;color:var(--text3)">Aucun participant.</div>';return;}
   const maxS=20;
   const maxSub=10;
