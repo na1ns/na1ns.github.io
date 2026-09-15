@@ -834,48 +834,6 @@ body.light .modal textarea{background:rgba(0,0,0,0.07);border:1px solid var(--bo
     </div>
     <div class="section-body collapsed" id="tirageBody" style="max-height:0">
 
-      <div class="legend-box" style="margin-top:16px">
-        <span>🏆</span>
-        <div>
-          Par défaut, tous les jours sont validés ✓. Cochez ✗ uniquement les jours manqués.
-          Aucune case cochée = semaine complète = éligible 🏆.
-        </div>
-      </div>
-
-      <div class="draw-buffer-banner" id="drawBufferBanner"></div>
-      <div id="alertRegressionBanner" style="display:none;margin:12px 0 0;padding:10px 14px;background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.25);border-radius:var(--radius-lg)">
-        <div style="font-size:12px;font-weight:700;color:#FF6B6B;margin-bottom:6px">⚠️ Joueurs en régression (2 semaines sans valider)</div>
-        <div id="alertRegressionList" style="display:flex;flex-wrap:wrap;gap:6px"></div>
-      </div>
-
-      <div class="draw-section">
-        <div class="draw-row">
-          <button class="btn btn-purple" id="drawPresBtn" onclick="draw(true)" disabled>🟣 Tirage présents</button>
-          <button class="btn" id="presModeBtn" onclick="togglePresentMode()">☐ Mode présents</button>
-          <button class="btn" onclick="openManual()">✏️ Saisie manuelle</button>
-        </div>
-      </div>
-
-      <div class="result-cards">
-        <div class="rcard" id="cardDrv">
-          <div class="role-hdr">
-            <div class="role-dot drv">T</div>
-            <span class="role-lbl">Chauffeur du train</span>
-          </div>
-          <div class="res-name" id="resDrv">—</div>
-          <div id="resDrvBadge"></div>
-        </div>
-        <div class="rcard" id="cardVip">
-          <div class="role-hdr">
-            <div class="role-dot vip">★</div>
-            <span class="role-lbl">VIP</span>
-          </div>
-          <div class="res-name" id="resVip">—</div>
-          <div id="resVipBadge"></div>
-        </div>
-      </div>
-      <div class="elig-info" id="eligInfo"></div>
-
       <!-- PLANNING SEMAINE -->
       <div class="planning-section" id="planningSection" style="margin-top:1rem">
         <div class="planning-header">
