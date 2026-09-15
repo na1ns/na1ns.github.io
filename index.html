@@ -852,11 +852,6 @@ body.light .modal textarea{background:rgba(0,0,0,0.07);border:1px solid var(--bo
             <div id="priorityToggleWrap" style="display:none;align-items:center;gap:8px;padding:0 10px;background:rgba(255,184,77,0.06);border:1px solid rgba(255,184,77,0.2);border-radius:var(--radius-lg);height:34px">
               <button id="priorityToggleBtn" onclick="togglePriorityMode()" title="Activer la priorité staff" style="background:none;border:none;cursor:pointer;font-size:18px;line-height:1;padding:0" >⭐</button>
               <span id="priorityToggleLabel" style="font-size:11px;font-weight:700;color:var(--text3)">Priorité staff OFF</span>
-              <select id="priorityMultSelect" onchange="setPriorityMult(this.value)" style="display:none;height:24px;padding:0 4px;border:1px solid rgba(255,184,77,0.3);border-radius:6px;background:var(--surface);color:var(--amber);font-size:11px;font-weight:700;cursor:pointer">
-                <option value="1.5">Faible</option>
-                <option value="2" selected>Moyen</option>
-                <option value="3">Élevé</option>
-              </select>
             </div>
             <span class="section-toggle collapsed" id="planningToggle" onclick="toggleSection('planningBody','planningToggle')">▾</span>
           </div>
@@ -1417,31 +1412,22 @@ function togglePriorityMode(){
   savePriorityConfig();
 }
 
-function setPriorityMult(val){
-  priorityMultiplier=parseFloat(val);
-  savePriorityConfig();
-  const labels={1.5:'Faible',2:'Moyen',3:'Élevé'};
-  if(priorityModeActive) toast(`Priorité staff : ${labels[priorityMultiplier]||'Moyen'}`);
-}
 
 function updatePriorityUI(){
   const btn=document.getElementById('priorityToggleBtn');
   const lbl=document.getElementById('priorityToggleLabel');
-  const sel=document.getElementById('priorityMultSelect');
   const wrap=document.getElementById('priorityToggleWrap');
   if(!btn)return;
   if(priorityModeActive){
     btn.style.opacity='1';
     lbl.textContent='Priorité staff ON';
     lbl.style.color='var(--amber)';
-    if(sel){sel.style.display='';sel.value=String(priorityMultiplier);}
     if(wrap)wrap.style.background='rgba(255,184,77,0.12)';
     if(wrap)wrap.style.borderColor='rgba(255,184,77,0.35)';
   }else{
     btn.style.opacity='0.4';
     lbl.textContent='Priorité staff OFF';
     lbl.style.color='var(--text3)';
-    if(sel)sel.style.display='none';
     if(wrap)wrap.style.background='rgba(255,184,77,0.04)';
     if(wrap)wrap.style.borderColor='rgba(255,184,77,0.15)';
   }
@@ -4459,7 +4445,8 @@ function toggleSection(bodyId,toggleId){
 
 function updateDrawBtns(){
   const presPool=participants.filter(p=>presentIds.has(p.id));
-  document.getElementById('drawPresBtn').disabled=!presentMode||presPool.length<2||busy;
+  const drawPresBtn=document.getElementById('drawPresBtn');
+  if(drawPresBtn) drawPresBtn.disabled=!presentMode||presPool.length<2||busy;
 }
 
 
