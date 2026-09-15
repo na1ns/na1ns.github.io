@@ -843,6 +843,7 @@ body.light .modal textarea{background:rgba(0,0,0,0.07);border:1px solid var(--bo
               <span class="planning-badge-rt">🔴 Live</span>
             </div>
             <span class="planning-week-label" id="planningWeekLabel"></span>
+            <div id="eligInfo" style="margin-top:6px"></div>
           </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <button class="planning-copy-btn" onclick="copyPlanningText()">📋 Copier</button>
@@ -2108,7 +2109,7 @@ function showApp(){
   if(archiveBtn)archiveBtn.style.display=isAdminOrStaff()?'inline-flex':'none';
   const repairBtn=document.getElementById('btnRepairHistory');if(repairBtn)repairBtn.style.display=isAdmin()?'':'none';
   const recalcBtn=document.getElementById('btnRecalcStats');if(recalcBtn)recalcBtn.style.display=isAdmin()?'':'none';
-  const priorityWrap=document.getElementById('priorityToggleWrap');if(priorityWrap)priorityWrap.style.display=isAdmin()?'flex':'none';
+  const priorityWrap=document.getElementById('priorityToggleWrap');if(priorityWrap)priorityWrap.style.display=isAdminOrStaff()?'flex':'none';
   if(isAdmin())loadUsers();
   loadPermConfig();
   loadPriorityConfig();
@@ -2702,34 +2703,77 @@ async function doWeeklyDraws(){
   let localDriverTotal=totalDrivers;
   let localVipTotal=totalVips;
 
+  // Quand la priorité staff est active, on réserve au moins une journée
+  // à chaque membre du staff (dans la limite des 7 jours), en commençant
+  // par ceux qui ont le moins de tirages cumulés.
+  const staffWaiting = priorityModeActive
+    ? pool.filter(p=>p.is_priority).sort((a,b)=>{
+        const sa=(a.driver_count||0)+(a.vip_count||0);
+        const sb=(b.driver_count||0)+(b.vip_count||0);
+        if(sa!==sb)return sa-sb;
+        return (a.name||'').localeCompare(b.name||'');
+      })
+    : [];
+  const staffScheduled = new Set();
+
+  function pickForcedStaff(){
+    const candidates=staffWaiting.filter(p=>!staffScheduled.has(p.id)&&!usedAny.has(p.id));
+    return candidates.length ? candidates[0] : null;
+  }
+
   for(let day=0;day<7;day++){
+    const forcedStaff = pickForcedStaff();
 
     // ── Tirage du chauffeur ──
-    // Priorité 1 : pas encore tiré cette semaine (ni chauffeur ni VIP)
-    let dPool=pool.filter(p=>!usedAny.has(p.id));
-    // Priorité 2 : pas encore chauffeur cette semaine
-    if(dPool.length<1) dPool=pool.filter(p=>!usedDrivers.has(p.id));
-    // Priorité 3 : tout le pool
-    if(dPool.length<1) dPool=[...pool];
-    const driver=pickByDebt(dPool,'driver_count',localDriverTotal);
+    // Si un membre du staff doit encore être assuré cette semaine,
+    // on lui donne sa place dans le rôle où sa dette est la plus faible.
+    let driver;
+    if(forcedStaff){
+      const driverDebt=(forcedStaff.driver_count||0)/localDriverTotal;
+      const vipDebt=(forcedStaff.vip_count||0)/localVipTotal;
+      if(driverDebt<=vipDebt){
+        driver=forcedStaff;
+      }
+    }
+    if(!driver){
+      // Priorité 1 : pas encore tiré cette semaine (ni chauffeur ni VIP)
+      let dPool=pool.filter(p=>!usedAny.has(p.id));
+      // Priorité 2 : pas encore chauffeur cette semaine
+      if(dPool.length<1) dPool=pool.filter(p=>!usedDrivers.has(p.id));
+      // Priorité 3 : tout le pool
+      if(dPool.length<1) dPool=[...pool];
+      driver=pickByDebt(dPool,'driver_count',localDriverTotal);
+    }
 
     // ── Tirage du VIP ──
-    // Si priorité staff active et que le chauffeur est staff :
-    // exclure les autres membres staff du pool VIP (max 1 staff/jour)
-    const driverIsStaff = priorityModeActive && driver.is_priority;
-    const excludeStaff  = p => driverIsStaff && p.is_priority;
+    // Si un membre du staff doit être assuré et qu'il n'a pas été choisi
+    // comme chauffeur, on le force en VIP.
+    let forcedVip = forcedStaff && driver.id!==forcedStaff.id ? forcedStaff : null;
+    let vip;
+    if(forcedVip){
+      vip=forcedVip;
+    }else{
+      // Si le chauffeur est staff, on conserve la règle historique :
+      // éviter un second membre staff le même jour lorsque c'est possible.
+      const driverIsStaff = priorityModeActive && driver.is_priority;
+      const excludeStaff  = p => driverIsStaff && p.is_priority;
 
-    // Priorité 1 : pas encore tiré cette semaine, hors chauffeur du jour (+ règle staff)
-    let vPool=pool.filter(p=>p.id!==driver.id&&!usedAny.has(p.id)&&!excludeStaff(p));
-    // Si pas assez sans la contrainte staff, on la retire temporairement
-    if(vPool.length<1) vPool=pool.filter(p=>p.id!==driver.id&&!usedAny.has(p.id));
-    // Priorité 2 : pas encore VIP cette semaine
-    if(vPool.length<1) vPool=pool.filter(p=>p.id!==driver.id&&!usedVips.has(p.id)&&!excludeStaff(p));
-    if(vPool.length<1) vPool=pool.filter(p=>p.id!==driver.id&&!usedVips.has(p.id));
-    // Priorité 3 : tout le pool sauf chauffeur du jour
-    if(vPool.length<1) vPool=pool.filter(p=>p.id!==driver.id&&!excludeStaff(p));
-    if(vPool.length<1) vPool=pool.filter(p=>p.id!==driver.id);
-    const vip=pickByDebt(vPool,'vip_count',localVipTotal);
+      // Priorité 1 : pas encore tiré cette semaine, hors chauffeur du jour (+ règle staff)
+      let vPool=pool.filter(p=>p.id!==driver.id&&!usedAny.has(p.id)&&!excludeStaff(p));
+      // Si pas assez sans la contrainte staff, on la retire temporairement
+      if(vPool.length<1) vPool=pool.filter(p=>p.id!==driver.id&&!usedAny.has(p.id));
+      // Priorité 2 : pas encore VIP cette semaine
+      if(vPool.length<1) vPool=pool.filter(p=>p.id!==driver.id&&!usedVips.has(p.id)&&!excludeStaff(p));
+      if(vPool.length<1) vPool=pool.filter(p=>p.id!==driver.id&&!usedVips.has(p.id));
+      // Priorité 3 : tout le pool sauf chauffeur du jour
+      if(vPool.length<1) vPool=pool.filter(p=>p.id!==driver.id&&!excludeStaff(p));
+      if(vPool.length<1) vPool=pool.filter(p=>p.id!==driver.id);
+      vip=pickByDebt(vPool,'vip_count',localVipTotal);
+    }
+
+    if(forcedStaff) staffScheduled.add(forcedStaff.id);
+    if(priorityModeActive && driver.is_priority) staffScheduled.add(driver.id);
+    if(priorityModeActive && vip.is_priority) staffScheduled.add(vip.id);
 
     draws.push({driver:driver.name,vip:vip.name,day});
 
