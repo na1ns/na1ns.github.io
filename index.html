@@ -4944,41 +4944,60 @@ async function balanceTeams(){
     const fmtPow = v => v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
     toast(`⚡ A : ${groupA.length} joueurs (${fmtPow(powA)}) · B : ${groupB.length} joueurs (${fmtPow(powB)})`);
   } else {
-    // En rotation équitable, tous les titulaires restent dans le pool.
-    // On les classe par rotation puis on les répartit A/B. Les titulaires qui
-    // dépassent les 40 places de départ deviennent ensuite des remplaçants
-    // avant de faire appel aux joueurs ayant répondu R.
+    const STARTER_SLOTS = CATEGORIES.filter(c=>c.key!=='SUB').reduce((s,c)=>s+c.size,0);
+    const TOTAL_STARTER_CAP = STARTER_SLOTS * 2;
+    let selectedStarterPool = [];
+    let overflowStarterPool = [];
+    let selectedSubPool = [];
+
     if(useFairRotation){
-      const forced=starters.filter(p=>p.ev_priority);
-      const forcedSet=new Set(forced.map(p=>p.id));
-      const rankedRest=buildTddFairRank(starters.filter(p=>!forcedSet.has(p.id)));
-      starters=[...sortTddPlayers(forced),...rankedRest];
+      // 1) La rotation équitable sélectionne d'abord les TITULAIRES.
+      //    Les REMPLAÇANTS ne peuvent compléter les places titulaires que s'il en manque.
+      const rankedStarters = buildTddFairRank(starters);
+      const selectedStarterCount = Math.min(TOTAL_STARTER_CAP, rankedStarters.length);
+      selectedStarterPool = rankedStarters.slice(0, selectedStarterCount);
+      overflowStarterPool = rankedStarters.slice(selectedStarterCount);
+
+      // 2) S'il manque des titulaires, on complète les places titulaires avec les R.
+      const rankedSubs = sortTddPlayers(subs);
+      const missingStarterSlots = Math.max(0, TOTAL_STARTER_CAP - selectedStarterPool.length);
+      const subsUsedAsStarters = rankedSubs.slice(0, missingStarterSlots);
+      selectedStarterPool = [...selectedStarterPool, ...subsUsedAsStarters];
+
+      // 3) Les titulaires excédentaires restent prioritaires dans les SUB,
+      //    puis on complète avec les vrais remplaçants.
+      const remainingSubs = rankedSubs.slice(subsUsedAsStarters.length);
+      selectedSubPool = [...overflowStarterPool, ...remainingSubs].slice(0, TOTAL_SUBS * 2);
+    } else {
+      // Fonctionnement historique lorsque Rotation équitable est désactivée.
+      const priorityStarters = sortTddPlayers(starters.filter(p=>p.ev_priority));
+      const normalStarters   = sortTddPlayers(starters.filter(p=>!p.ev_priority));
+      selectedStarterPool = [...priorityStarters, ...normalStarters];
+      selectedSubPool = sortTddPlayers(subs);
     }
-    // Priorité Option A : les joueurs ev_priority=true sont placés en premiers starters
-    const priorityStarters = sortTddPlayers(starters.filter(p=>p.ev_priority));
-    const normalStarters   = sortTddPlayers(starters.filter(p=>!p.ev_priority));
-    // Répartir d'abord les prioritaires puis les normaux
-    const [prioA, prioB] = splitBalanced(priorityStarters);
-    const [normA, normB] = splitBalanced(normalStarters);
-    const orderedA = [...prioA, ...normA];
-    const orderedB = [...prioB, ...normB];
 
-    // Répartir les titulaires équitablement par puissance entre les 2 équipes
-    const [startersA, startersB] = [orderedA, orderedB];
+    // 4) Une fois la sélection faite, la puissance sert uniquement à équilibrer A/B.
+    const [starterGroupA, starterGroupB] = splitBalanced(selectedStarterPool);
+    const titA = starterGroupA.slice(0, STARTER_SLOTS);
+    const titB = starterGroupB.slice(0, STARTER_SLOTS);
+    const overA = starterGroupA.slice(STARTER_SLOTS);
+    const overB = starterGroupB.slice(STARTER_SLOTS);
 
-    // Si trop de titulaires pour les slots (20 par équipe), le surplus va en SUB
-    const STARTER_SLOTS = CATEGORIES.filter(c=>c.key!=='SUB').reduce((s,c)=>s+c.size, 0);
-    const titA   = startersA.slice(0, STARTER_SLOTS);
-    const overA  = startersA.slice(STARTER_SLOTS); // excédent de titulaires → SUB
-    const titB   = startersB.slice(0, STARTER_SLOTS);
-    const overB  = startersB.slice(STARTER_SLOTS);
-
-    // Répartir les remplaçants équitablement
-    const [subsA, subsB] = splitBalanced(subs);
-
-    // SUB = remplaçants + excédent de titulaires (limité à 10)
-    const subPoolA = [...overA, ...subsA].slice(0, TOTAL_SUBS);
-    const subPoolB = [...overB, ...subsB].slice(0, TOTAL_SUBS);
+    let subPoolA, subPoolB;
+    if(useFairRotation){
+      // Les dépassements de titulaires sont toujours placés avant les R dans le pool SUB.
+      const orderedSubPool = [...overA, ...overB, ...selectedSubPool];
+      const chosenSubPool = orderedSubPool.slice(0, TOTAL_SUBS * 2);
+      [subPoolA, subPoolB] = splitBalanced(chosenSubPool);
+      subPoolA = subPoolA.slice(0, TOTAL_SUBS);
+      subPoolB = subPoolB.slice(0, TOTAL_SUBS);
+    } else {
+      // Même comportement qu'avant en mode classique : les excédents de titulaires
+      // complètent les remplaçants, puis chaque équipe reçoit jusqu'à 10 SUB.
+      const [subsA, subsB] = splitBalanced(selectedSubPool);
+      subPoolA = [...overA, ...subsA].slice(0, TOTAL_SUBS);
+      subPoolB = [...overB, ...subsB].slice(0, TOTAL_SUBS);
+    }
 
     evTeams={A:buildOneTeam(titA, subPoolA), B:buildOneTeam(titB, subPoolB)};
 
@@ -4993,7 +5012,8 @@ async function balanceTeams(){
 
     const powA=teamTotalPower(evTeams.A), powB=teamTotalPower(evTeams.B);
     const fmtPow=v=>v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
-    toast(`⚖️ A : ${titA.length} tit. + ${subPoolA.length} rem. (${fmtPow(powA)}) · B : ${titB.length} tit. + ${subPoolB.length} rem. (${fmtPow(powB)})`);
+    const titleCountInSubs = useFairRotation ? overflowStarterPool.length : 0;
+    toast(`⚖️ A : ${titA.length} tit. + ${subPoolA.length} rem. (${fmtPow(powA)}) · B : ${titB.length} tit. + ${subPoolB.length} rem. (${fmtPow(powB)})${titleCountInSubs?` · ${titleCountInSubs} titulaire${titleCountInSubs>1?'s':''} reporté${titleCountInSubs>1?'s':''} en SUB`:''}`);
   }
   await saveEvTeamsToDB();
   const placedIds=new Set();
