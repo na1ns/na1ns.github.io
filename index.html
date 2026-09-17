@@ -4944,14 +4944,15 @@ async function balanceTeams(){
     const fmtPow = v => v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
     toast(`⚡ A : ${groupA.length} joueurs (${fmtPow(powA)}) · B : ${groupB.length} joueurs (${fmtPow(powB)})`);
   } else {
-    // En rotation équitable, on sélectionne d'abord les titulaires qui ont le moins participé.
-    // Le nombre de titulaires retenus est plafonné aux places disponibles (20 par équipe).
+    // En rotation équitable, tous les titulaires restent dans le pool.
+    // On les classe par rotation puis on les répartit A/B. Les titulaires qui
+    // dépassent les 40 places de départ deviennent ensuite des remplaçants
+    // avant de faire appel aux joueurs ayant répondu R.
     if(useFairRotation){
-      const cap=CATEGORIES.filter(c=>c.key!=='SUB').reduce((s,c)=>s+c.size,0)*2;
       const forced=starters.filter(p=>p.ev_priority);
       const forcedSet=new Set(forced.map(p=>p.id));
       const rankedRest=buildTddFairRank(starters.filter(p=>!forcedSet.has(p.id)));
-      starters=[...sortTddPlayers(forced),...rankedRest].slice(0,cap);
+      starters=[...sortTddPlayers(forced),...rankedRest];
     }
     // Priorité Option A : les joueurs ev_priority=true sont placés en premiers starters
     const priorityStarters = sortTddPlayers(starters.filter(p=>p.ev_priority));
@@ -4992,12 +4993,22 @@ async function balanceTeams(){
 
     const powA=teamTotalPower(evTeams.A), powB=teamTotalPower(evTeams.B);
     const fmtPow=v=>v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
-    toast(`⚖️ A : ${startersA.length} tit. + ${subPoolA.length} rem. (${fmtPow(powA)}) · B : ${startersB.length} tit. + ${subPoolB.length} rem. (${fmtPow(powB)})`);
+    toast(`⚖️ A : ${titA.length} tit. + ${subPoolA.length} rem. (${fmtPow(powA)}) · B : ${titB.length} tit. + ${subPoolB.length} rem. (${fmtPow(powB)})`);
   }
   await saveEvTeamsToDB();
   const placedIds=new Set();
   ['A','B'].forEach(tk=>{if(!evTeams?.[tk])return;CATEGORIES.forEach(cat=>(evTeams[tk][cat.key]||[]).forEach(p=>placedIds.add(p.id)));});
-  const starterPlacedIds=[...placedIds].filter(id=>evRoles[id]==='starter');
+  const starterPlacedIds=[];
+  if(useFairRotation){
+    ['A','B'].forEach(tk=>{
+      if(!evTeams?.[tk])return;
+      CATEGORIES.filter(cat=>cat.key!=='SUB').forEach(cat=>{
+        (evTeams[tk][cat.key]||[]).forEach(p=>{
+          if(evRoles[p.id]==='starter') starterPlacedIds.push(p.id);
+        });
+      });
+    });
+  }
   if(useFairRotation) await recordTddFairParticipation(placedIds,starterPlacedIds);
   await recordTddNonRetenus(allTddRegisteredIds,placedIds);
   if(!evAsymMode) toast('⚖️ Équipes sauvegardées !');
