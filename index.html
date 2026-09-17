@@ -1147,6 +1147,12 @@ body.light .modal textarea{background:rgba(0,0,0,0.07);border:1px solid var(--bo
                 <span id="tddFairRotationThumb" style="display:block;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .2s;transform:translateX(0px)"></span>
               </button>
             </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:0 10px;background:rgba(124,159,255,0.06);border:1px solid rgba(124,159,255,0.15);border-radius:var(--radius-lg);height:34px">
+              <span style="font-size:11px;font-weight:700;color:var(--blue)">🤖 Rotation auto hebdo</span>
+              <button id="tddAutoFairRotationBtn" onclick="toggleTddAutoFairRotation()" style="width:38px;height:20px;border-radius:99px;border:none;cursor:pointer;background:var(--border2);padding:2px;transition:background .2s">
+                <span id="tddAutoFairRotationThumb" style="display:block;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .2s;transform:translateX(0px)"></span>
+              </button>
+            </div>
             <div id="asymControls" style="display:none;align-items:center;gap:8px;padding:6px 12px;background:rgba(255,184,77,0.06);border:1px solid rgba(255,184,77,0.2);border-radius:var(--radius-lg)">
               <span style="font-size:11px;font-weight:700;color:var(--amber)">Équipe A :</span>
               <input type="range" id="asymSlider" min="15" max="35" step="1" value="25"
@@ -1347,6 +1353,7 @@ let _evSaving=false;    // true pendant saveEvTeamsToDB pour ignorer le realtime
 let evAsymSizeA=25;     // nombre de joueurs dans la grosse équipe A
 let evElPriority=false; // les joueurs les plus forts vont en Électrons libres en premier
 let evFairRotation=(()=>{try{return localStorage.getItem('tdd_fair_rotation')==='1';}catch(e){return false;}})();
+let evAutoFairRotation=(()=>{try{return localStorage.getItem('tdd_auto_fair_rotation')==='1';}catch(e){return false;}})();
 const TDD_FAIR_ROTATION_KEY='tdd_fair_rotation_stats';
 let tddFairStats={counts:{},starters:{},week:''};
 let weeklyDrawsData=[];
@@ -2257,12 +2264,22 @@ function updateTddFairRotationUi(){
   const thumb=document.getElementById('tddFairRotationThumb');
   if(btn)btn.style.background=evFairRotation?'#50e898':'var(--border2)';
   if(thumb)thumb.style.transform=evFairRotation?'translateX(18px)':'translateX(0px)';
+  const abtn=document.getElementById('tddAutoFairRotationBtn');
+  const athumb=document.getElementById('tddAutoFairRotationThumb');
+  if(abtn)abtn.style.background=evAutoFairRotation?'#7c9fff':'var(--border2)';
+  if(athumb)athumb.style.transform=evAutoFairRotation?'translateX(18px)':'translateX(0px)';
 }
 function toggleTddFairRotation(){
   evFairRotation=!evFairRotation;
   try{localStorage.setItem('tdd_fair_rotation',evFairRotation?'1':'0');}catch(e){}
   updateTddFairRotationUi();
   toast(evFairRotation?'🔄 Rotation équitable ON — compatible avec EL priorité':'🔄 Rotation équitable OFF');
+}
+function toggleTddAutoFairRotation(){
+  evAutoFairRotation=!evAutoFairRotation;
+  try{localStorage.setItem('tdd_auto_fair_rotation',evAutoFairRotation?'1':'0');}catch(e){}
+  updateTddFairRotationUi();
+  toast(evAutoFairRotation?'🤖 Rotation automatique hebdomadaire ON':'🤖 Rotation automatique hebdomadaire OFF');
 }
 function getTddFairKey(){return getTddWeekKey();}
 function buildTddFairRank(players){
@@ -4904,11 +4921,26 @@ const TOTAL_STARTERS=20,TOTAL_SUBS=10;
 
 function makeEmptyTeam(){const t={};CATEGORIES.forEach(c=>{t[c.key]=[];});return t;}
 
+function renderTddFairResultStats(starters,placedIds){
+  const el=document.getElementById('evFairnessList');
+  if(!el)return;
+  if(!((evFairRotation||evAutoFairRotation)&&!evAsymMode)){el.innerHTML='';return;}
+  const starterPlacedIds=[...placedIds].filter(id=>evRoles[id]==='starter');
+  const starterAsSubIds=[...placedIds].filter(id=>evRoles[id]==='starter' && ['A','B'].some(t=>evTeams?.[t]?.SUB?.some(p=>p.id===id)));
+  const realSubIds=[...placedIds].filter(id=>evRoles[id]==='sub');
+  const avg=starters.length?starters.reduce((sum,p)=>sum+Number(tddFairStats.counts?.[p.id]||0),0)/starters.length:0;
+  const green=starterPlacedIds.filter(id=>Number(tddFairStats.counts?.[id]||0)<avg).length;
+  const yellow=starterPlacedIds.filter(id=>Math.abs(Number(tddFairStats.counts?.[id]||0)-avg)<0.0001).length;
+  const red=starterPlacedIds.filter(id=>Number(tddFairStats.counts?.[id]||0)>avg).length;
+  const overflow=starterAsSubIds.length;
+  el.innerHTML=`<div style="padding:9px 12px;border:1px solid rgba(124,159,255,0.2);background:rgba(124,159,255,0.05);border-radius:var(--radius-lg);font-size:11px;color:var(--text3)"><div style="font-weight:800;color:var(--blue);margin-bottom:6px">🔄 Rotation de la semaine</div><div style="display:flex;gap:8px;flex-wrap:wrap"><span>👤 ${starterPlacedIds.length-overflow} titulaires sélectionnés selon la rotation</span><span>↪️ ${overflow} titulaire${overflow>1?'s':''} reporté${overflow>1?'s':''} en remplaçant</span><span>🔁 ${realSubIds.length} remplaçant${realSubIds.length>1?'s':''} sélectionné${realSubIds.length>1?'s':''}</span></div><div style="margin-top:7px;display:flex;gap:8px;flex-wrap:wrap"><span>🟢 ${green} sous la moyenne de participations</span><span>🟡 ${yellow} dans la moyenne</span><span>🔴 ${red} au-dessus de la moyenne</span></div></div>`;
+}
+
 async function balanceTeams(){
   const allTddRegisteredIds=participants.filter(p=>evRoles[p.id]==='starter'||evRoles[p.id]==='sub').map(p=>p.id);
   let starters=sortTddPlayers(participants.filter(p=>evRoles[p.id]==='starter'));
   let subs=sortTddPlayers(participants.filter(p=>evRoles[p.id]==='sub'));
-  const useFairRotation=evFairRotation&&!evAsymMode;
+  const useFairRotation=(evFairRotation||evAutoFairRotation)&&!evAsymMode;
   if(useFairRotation){
     starters=buildTddFairRank(starters);
     // Les remplaçants conservent la logique actuelle (rotation des non-retenus + puissance).
@@ -5029,6 +5061,7 @@ async function balanceTeams(){
       });
     });
   }
+  if(useFairRotation) renderTddFairResultStats(starters,placedIds);
   if(useFairRotation) await recordTddFairParticipation(placedIds,starterPlacedIds);
   await recordTddNonRetenus(allTddRegisteredIds,placedIds);
   if(!evAsymMode) toast('⚖️ Équipes sauvegardées !');
