@@ -4523,7 +4523,8 @@ function toggleSection(bodyId,toggleId){
 
 function updateDrawBtns(){
   const presPool=participants.filter(p=>presentIds.has(p.id));
-  document.getElementById('drawPresBtn').disabled=!presentMode||presPool.length<2||busy;
+  const drawPresBtn=document.getElementById('drawPresBtn');
+  if(drawPresBtn) drawPresBtn.disabled=!presentMode||presPool.length<2||busy;
 }
 
 
@@ -4929,13 +4930,14 @@ async function balanceTeams(){
     const fmtPow = v => v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
     toast(`⚡ A : ${groupA.length} joueurs (${fmtPow(powA)}) · B : ${groupB.length} joueurs (${fmtPow(powB)})`);
   } else {
-    // Rotation équitable : les TITULAIRES restent toujours prioritaires sur les REMPLAÇANTS.
-    // On choisit d'abord les titulaires (rotation / priorité / puissance), puis seulement
-    // les remplaçants si le nombre de titulaires est insuffisant pour remplir les slots.
+    // En rotation équitable, on sélectionne d'abord les titulaires qui ont le moins participé.
+    // Le nombre de titulaires retenus est plafonné aux places disponibles (20 par équipe).
     if(useFairRotation){
       const cap=CATEGORIES.filter(c=>c.key!=='SUB').reduce((s,c)=>s+c.size,0)*2;
-      const rankedStarters=buildTddFairRank(starters);
-      starters=rankedStarters.slice(0,cap);
+      const forced=starters.filter(p=>p.ev_priority);
+      const forcedSet=new Set(forced.map(p=>p.id));
+      const rankedRest=buildTddFairRank(starters.filter(p=>!forcedSet.has(p.id)));
+      starters=[...sortTddPlayers(forced),...rankedRest].slice(0,cap);
     }
     // Priorité Option A : les joueurs ev_priority=true sont placés en premiers starters
     const priorityStarters = sortTddPlayers(starters.filter(p=>p.ev_priority));
