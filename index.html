@@ -2231,7 +2231,7 @@ function renderTddNonRetenus(){
   const summary=document.getElementById('evFairnessSummary'),list=document.getElementById('evFairnessList');
   const entries=Object.entries(tddNonRetenus).map(([id,count])=>({p:participants.find(x=>String(x.id)===String(id)),count:Number(count)||0})).filter(x=>x.p&&x.count>0).sort((a,b)=>b.count-a.count||a.p.name.localeCompare(b.p.name));
   if(summary)summary.textContent=entries.length?`🔄 Rotation : ${entries.length} joueur${entries.length>1?'s':''} à rattraper`:'🔄 Rotation : aucun joueur en attente';
-  if(list)list.innerHTML=entries.length?'<div style="padding:8px 12px;border:1px solid rgba(255,184,77,0.2);background:rgba(255,184,77,0.05);border-radius:var(--radius-lg);font-size:11px;color:var(--text3)"><strong style="color:var(--amber)">🔄 Rotation des non-retenus</strong> — les joueurs non pris sont automatiquement enregistrés et prioritaires la semaine suivante.<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'+entries.map(x=>`<span style="padding:3px 7px;border:1px solid var(--border2);border-radius:99px;color:var(--text)">${x.p.name} <b style="color:var(--amber)">×${x.count}</b></span>`).join('')+'</div></div>':'';
+  if(list)list.innerHTML=entries.length?'<div style="padding:8px 12px;border:1px solid rgba(255,184,77,0.2);background:rgba(255,184,77,0.05);border-radius:var(--radius-lg);font-size:11px;color:var(--text3)"><strong style="color:var(--amber)">🔄 Rotation des non-retenus</strong> — les joueurs non retenus sont automatiquement enregistrés et bénéficient d’une priorité supplémentaire lors de la prochaine TDD. S’ils s’inscrivent comme titulaires, cette priorité s’applique parmi les titulaires. S’ils s’inscrivent comme remplaçants, elle s’applique parmi les remplaçants. Un remplaçant ne passe pas devant un titulaire uniquement grâce à cette priorité.<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'+entries.map(x=>`<span style="padding:3px 7px;border:1px solid var(--border2);border-radius:99px;color:var(--text)">${x.p.name} <b style="color:var(--amber)">×${x.count}</b></span>`).join('')+'</div></div>':'';
 }
 async function recordTddNonRetenus(registeredIds,placedIds){
   const week=getTddWeekKey(); if(tddNonRetenusWeek===week)return;
@@ -5111,8 +5111,8 @@ function evDropZoneOver(event,teamKey,catKey){
   const catDef=CATEGORIES.find(c=>c.key===catKey);
   const isFull=cat&&catDef&&cat.length>=catDef.size;
   const z=event.currentTarget;
-  z.classList.toggle('ev-drop-invalid',!!isFull);z.classList.toggle('ev-drop-active',!isFull);
-  event.dataTransfer.dropEffect=isFull?'none':'move';
+  z.classList.remove('ev-drop-invalid');z.classList.add('ev-drop-active');
+  event.dataTransfer.dropEffect='move';
 }
 function evDropZoneLeave(event){event.currentTarget.classList.remove('ev-drop-active','ev-drop-invalid');}
 function evDropOnCatUniversal(event,teamKey,catKey){
@@ -5125,7 +5125,26 @@ async function evDropOnCat(e,toTeam,toCatKey){
   const target=evTeams[toTeam][toCatKey];const catDef=CATEGORIES.find(c=>c.key===toCatKey);
   if(!target||!catDef)return;
   if(fromTeam===toTeam&&fromCat===toCatKey){const arr=evTeams[fromTeam][fromCat];const player=arr.splice(fromIdx,1)[0];arr.push(player);}
-  else{if(target.length>=catDef.size){toast(`La catégorie ${catDef.label} est pleine`);evDragSrcData=null;evDragEnd();return;}const player=evTeams[fromTeam][fromCat].splice(fromIdx,1)[0];target.push(player);}
+  else{
+    const player=evTeams[fromTeam][fromCat].splice(fromIdx,1)[0];
+    if(target.length>=catDef.size){
+      const replaced=target[target.length-1];
+      target[target.length-1]=player;
+      evTeams[fromTeam][fromCat].push(replaced);
+    }else target.push(player);
+  }
+  evDragSrcData=null;await saveEvTeamsToDB();renderEventTeams();
+}
+async function evDropOnPlayer(e,toTeam,toCatKey,toIdx){
+  e.preventDefault();e.stopPropagation();if(!evDragSrcData||!evTeams)return;
+  const{team:fromTeam,catKey:fromCat,idx:fromIdx}=evDragSrcData;
+  if(fromTeam===toTeam&&fromCat===toCatKey&&fromIdx===toIdx){evDragEnd();return;}
+  const fromArr=evTeams[fromTeam]&&evTeams[fromTeam][fromCat];
+  const toArr=evTeams[toTeam]&&evTeams[toTeam][toCatKey];
+  if(!fromArr||!toArr)return;
+  const moving=fromArr[fromIdx],target=toArr[toIdx];
+  if(!moving||!target)return;
+  fromArr[fromIdx]=target;toArr[toIdx]=moving;
   evDragSrcData=null;await saveEvTeamsToDB();renderEventTeams();
 }
 function evDragEnd(){evDragSrcData=null;document.querySelectorAll('.ev-team-player').forEach(el=>{el.classList.remove('dragging-team');el.classList.remove('drag-over-team');});}
@@ -5285,9 +5304,9 @@ function renderEventTeams(){
         const replaceBtn=`<button onclick="openTddReplaceMenu(event,'${teamKey}','${cat.key}',${i})" title="Remplacer par un joueur non placé" style="background:rgba(124,159,255,0.07);border:1px solid rgba(124,159,255,0.2);border-radius:6px;cursor:pointer;font-size:11px;padding:2px 7px;color:var(--blue);white-space:nowrap;flex-shrink:0;transition:all .15s">⇄ Remplacer</button>`;
         const roleLetter=evRoles[p.id]==='starter'?'T':evRoles[p.id]==='sub'?'R':'';
         const roleBadge=roleLetter?`<span style="font-size:11px;font-weight:800;color:var(--text2);min-width:14px;text-align:center" title="${roleLetter==='T'?'Titulaire':'Remplaçant'}">${roleLetter}</span>`:'';
-        return `<div class="ev-team-player" data-ev-team="${teamKey}" data-ev-cat="${cat.key}" data-ev-idx="${i}" draggable="true" ondragstart="evDragStart(event,'${teamKey}','${cat.key}',${i})" ondragover="evDragOver(event)" ondragenter="evDragEnterPlayer(event)" ondragleave="evDragLeavePlayer(event)" ondragend="evDragEnd()"><span class="ev-drag-handle" title="Glisser pour déplacer">⠿</span><span class="ev-pnum">${i+1}</span>${roleBadge}<span class="ev-pname" style="flex:1;min-width:0">${p.name}</span>${replaceBtn}${switchBtn}</div>`;
+        return `<div class="ev-team-player" data-ev-team="${teamKey}" data-ev-cat="${cat.key}" data-ev-idx="${i}" draggable="true" ondragstart="evDragStart(event,'${teamKey}','${cat.key}',${i})" ondragover="evDragOver(event)" ondrop="evDropOnPlayer(event,'${teamKey}','${cat.key}',${i})" ondragenter="evDragEnterPlayer(event)" ondragleave="evDragLeavePlayer(event)" ondragend="evDragEnd()"><span class="ev-drag-handle" title="Glisser pour déplacer">⠿</span><span class="ev-pnum">${i+1}</span>${roleBadge}<span class="ev-pname" style="flex:1;min-width:0">${p.name}</span>${replaceBtn}${switchBtn}</div>`;
       }).join('');
-      const isFull=players.length>=cat.size;const dropZone=`<div class="ev-cat-drop" ondragover="evDropZoneOver(event,'${teamKey}','${cat.key}')" ondragleave="evDropZoneLeave(event)" ondrop="evDropOnCatUniversal(event,'${teamKey}','${cat.key}')" style="min-height:${isEmpty?'38px':'34px'};display:flex;align-items:center;justify-content:center;border-radius:8px;transition:all .15s"><span style="font-size:11px;color:var(--text3);font-style:italic">${isFull?'Catégorie pleine':'↕ Déposer un joueur ici'}</span></div>`;
+      const isFull=players.length>=cat.size;const dropZone=`<div class="ev-cat-drop" ondragover="evDropZoneOver(event,'${teamKey}','${cat.key}')" ondragleave="evDropZoneLeave(event)" ondrop="evDropOnCatUniversal(event,'${teamKey}','${cat.key}')" style="min-height:${isEmpty?'38px':'34px'};display:flex;align-items:center;justify-content:center;border-radius:8px;transition:all .15s"><span style="font-size:11px;color:var(--text3);font-style:italic">${isFull?'↕ Déposer ici pour remplacer le dernier joueur':'↕ Déposer un joueur ici'}</span></div>`;
       return `<div class="ev-cat-block" style="border-left:2px solid ${cat.color}"><div class="ev-cat-header" style="background:${cat.bg}"><span class="ev-cat-title" style="color:${cat.color}">${cat.label}</span><span class="ev-cat-info">${players.length}/${cat.size}</span></div>${playersHtml}${dropZone}</div>`;
     }).join('');
     return `<div class="ev-team-card"><div class="ev-team-header ${headerCls}"><span class="ev-team-title ${headerCls}">⚔️ ${label}</span><span class="ev-team-power">${stCount} tit. · ${subCount} rempl. · ${pow.toLocaleString('fr-FR')} pts</span></div><div class="ev-team-body">${catsHtml}</div><button class="ev-copy-btn" onclick="evCopyTeam('${teamKey}','${label}')">📋 Copier ${label}</button></div>`;
