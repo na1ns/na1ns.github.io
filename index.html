@@ -3452,7 +3452,7 @@ function renderStatsPodium(){
   const podiumBlocks=[
     mkPodium('Top Chauffeurs','🚂','var(--blue)',topDrv,p=>p.driver_count||0,()=>' fois'),
     mkPodium('Top VIP','⭐','var(--amber)',topVip,p=>p.vip_count||0,()=>' fois'),
-    mkPodium('Top Puissance','⚡','var(--cyan)',topPow,p=>Number(p.power_t1).toLocaleString('fr-FR'),()=>''),
+    mkPodium('Top Puissance','⚡','var(--cyan)',topPow,p=>t1FormatPower(p.power_t1),()=>''),
     mkPodium('Taux de validation','📈','var(--green)',topRate,p=>p._rate+'%',()=>''),
     mkPodium('Série en cours','🔥','var(--purple)',topStreak,p=>p._streak,()=>' sem.'),
   ].filter(Boolean).join('');
@@ -3498,7 +3498,7 @@ function renderLeaderboard(){
     return`<tr>
       <td class="lb-rank ${rankCls}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':'#'+(i+1)}</td>
       <td><span class="lb-name">${p.name}${belowDot}</span></td>
-      <td class="lb-val" style="color:var(--cyan)">${p.power_t1?Number(p.power_t1).toLocaleString('fr-FR'):'—'}${p.power_t1?bar(p.power_t1,maxPow,'var(--cyan)'):''}</td>
+      <td class="lb-val" style="color:var(--cyan)">${p.power_t1?t1FormatPower(p.power_t1):'—'}${p.power_t1?bar(p.power_t1,maxPow,'var(--cyan)'):''}</td>
       <td class="lb-val" style="color:var(--blue)">${p.driver_count||0}${bar(p.driver_count||0,maxDrv,'var(--blue)')}</td>
       <td class="lb-val" style="color:var(--amber)">${p.vip_count||0}${bar(p.vip_count||0,maxVip,'var(--amber)')}</td>
       <td class="lb-val">${p._total}${bar(p._total,Math.max(...data.map(x=>x._total),1),'var(--purple)')}</td>
@@ -3606,12 +3606,12 @@ function renderStatsCards(){
       ${belowBadge}
       <div class="stat-card-header">
         <div class="stat-card-name">${p.name}${p.power_t1?rankHtml:''}</div>
-        ${p.power_t1?`<span class="stat-card-power">⚡ ${Number(p.power_t1).toLocaleString('fr-FR')}</span>`:'<span style="font-size:11px;color:var(--text3)">—</span>'}
+        ${p.power_t1?`<span class="stat-card-power">⚡ ${t1FormatPower(p.power_t1)}</span>`:'<span style="font-size:11px;color:var(--text3)">—</span>'}
       </div>
       <div class="stat-rows">
         <div class="stat-section-title">⚡ Puissance</div>
         ${p.power_t1?`
-        <div class="stat-row"><span class="stat-row-label">Puissance T1</span><span class="stat-row-val">${Number(p.power_t1).toLocaleString('fr-FR')}</span><div class="stat-bar-wrap"><div class="stat-bar blue" style="width:${powerPct}%"></div></div></div>
+        <div class="stat-row"><span class="stat-row-label">Puissance T1</span><span class="stat-row-val">${t1FormatPower(p.power_t1)}</span><div class="stat-bar-wrap"><div class="stat-bar blue" style="width:${powerPct}%"></div></div></div>
         <div class="stat-row"><span class="stat-row-label">% de la guilde</span><span class="stat-row-val">${powerShare}%</span><div class="stat-bar-wrap"><div class="stat-bar blue" style="width:${powerShare}%"></div></div></div>
         <div class="stat-row"><span class="stat-row-label">Rang puissance</span><span class="stat-row-val" style="color:var(--gold)">${powerRank>=0?'#'+(powerRank+1):'—'}</span></div>`
         :'<div style="font-size:12px;color:var(--text3);font-style:italic">Aucune puissance renseignée</div>'}
@@ -4844,11 +4844,13 @@ function onDragEnd(){dragSrcIdx=null;document.querySelectorAll('.p-row').forEach
 
 function startEdit(idx){const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;row.querySelector('.name-disp').style.display='none';const inp=row.querySelector('.name-inp');inp.style.display='block';inp.value=participants[idx].name;inp.focus();inp.select();}
 function commitEdit(idx){const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;renameName(participants[idx].id,participants[idx].name,row.querySelector('.name-inp').value);}
-function startEditPower(idx){const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;row.querySelector('.power-disp').style.display='none';const inp=row.querySelector('.power-inp');inp.style.display='block';inp.value=participants[idx].power_t1||'';inp.focus();inp.select();}
+function startEditPower(idx){const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;row.querySelector('.power-disp').style.display='none';const inp=row.querySelector('.power-inp');inp.style.display='block';inp.value=participants[idx].power_t1?t1FormatPower(participants[idx].power_t1):'';inp.focus();inp.select();}
 async function commitPower(idx){
   const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;
-  const raw=row.querySelector('.power-inp').value.replace(/\s/g,'').replace(/[^\d]/g,'');
-  const val=raw?parseInt(raw):null;const p=participants[idx];
+  const raw=row.querySelector('.power-inp').value.trim();
+  const val=raw?t1ParsePower(raw):null;
+  if(raw&&val===null){alert('Puissance invalide. Exemple : 51.00M ou 51000000.');render();return;}
+  const p=participants[idx];
   if(val===p.power_t1){render();return;}
   setBusy(true);await sb.from('participants').update({power_t1:val}).eq('id',p.id);setBusy(false);
 }
@@ -4899,7 +4901,7 @@ function render(){
           ${showPres?`<div style="display:flex;align-items:center;justify-content:center"><input type="checkbox" class="cb-pres" ${isPresent?'checked':''} onchange="togglePresent(${p.id})" ondragstart="event.stopPropagation()"/></div>`:''}
           <span class="player-num">${participants.indexOf(p)+1}</span>
           <div class="name-cell"><span class="name-disp" onclick="startEdit(${realIdx})">${nameHtml}</span><input class="name-inp" ondragstart="event.stopPropagation()" onblur="commitEdit(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
-          <div class="power-cell"><span class="power-disp${!p.power_t1?' empty-val':''}" onclick="startEditPower(${realIdx})">${p.power_t1?Number(p.power_t1).toLocaleString('fr-FR'):'—'}</span><input class="power-inp" type="text" ondragstart="event.stopPropagation()" onblur="commitPower(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
+          <div class="power-cell"><span class="power-disp${!p.power_t1?' empty-val':''}" onclick="startEditPower(${realIdx})">${p.power_t1?t1FormatPower(p.power_t1):'—'}</span><input class="power-inp" type="text" ondragstart="event.stopPropagation()" onblur="commitPower(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
           <div style="display:contents">${coffresBtns}</div>
           <div style="display:flex;align-items:center;justify-content:center;gap:4px"><span class="elig-btn ${elig?'yes':'no'}">${elig?'✓':'✗'}</span><button class="del-btn" onclick="removeName(${p.id})">×</button></div>
           ${isAdmin()?`<div style="display:flex;align-items:center;justify-content:center"><input type="checkbox" title="Priorité staff ⭐" ${p.is_priority?'checked':''} onchange="togglePriority(${p.id},this)" ondragstart="event.stopPropagation()" style="width:15px;height:15px;accent-color:var(--amber);cursor:pointer"/></div>`:''}
@@ -5499,7 +5501,7 @@ function openTddReplaceMenu(event,teamKey,catKey,idx){
     const infoSpan=document.createElement('span');
     infoSpan.className='tdd-replace-info';
     const bits=[];
-    if(p.power_t1)bits.push(Number(p.power_t1).toLocaleString('fr-FR'));
+    if(p.power_t1)bits.push(t1FormatPower(p.power_t1));
     if(count>0)bits.push(`🔄 ×${count}`);
     infoSpan.textContent=bits.join(' · ');
     btn.append(roleSpan,nameSpan,infoSpan);
@@ -5723,7 +5725,7 @@ function t1ParsePower(raw){
   const n=Number(m[1])*(m[2]==='M'?1e6:m[2]==='K'?1e3:1);
   return Number.isSafeInteger(Math.round(n))&&n>0&&n<=1e12?Math.round(n):null;
 }
-function t1FormatPower(n){return (n/1e6).toLocaleString('fr-FR',{maximumFractionDigits:3})+' M';}
+function t1FormatPower(n){return (Number(n)/1e6).toFixed(2)+'M';}
 function t1ImageChanged(){
   const file=document.getElementById('t1Image').files[0];const img=document.getElementById('t1Preview');
   if(!file){img.style.display='none';document.getElementById('t1Power').value='';document.getElementById('t1SubmitBtn').disabled=true;t1Status('');return;}
