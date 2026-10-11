@@ -1181,7 +1181,7 @@ body.light .poll-page{box-shadow:0 15px 45px rgba(0,0,0,.16)!important}
           <div id="pollModal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px">
             <div style="background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius-xl);padding:24px;max-width:400px;width:100%;box-shadow:var(--shadow-lg)">
               <div style="font-family:var(--font-display,inherit);font-size:16px;font-weight:800;color:var(--text);margin-bottom:6px">📊 Sondage TDD</div>
-              <div style="margin:12px 0"><button class="btn btn-primary" onclick="availabilityStaffAction('tdd','open')">➕ Nouvelle session TDD</button> <button class="btn" onclick="availabilityStaffAction('tdd','close')">🔒 Clôturer</button><button class="btn" data-admin-rescue="tdd" style="display:none;border-color:#e49b58" onclick="adminEmergencyClose('tdd')">🛟 Clôture de secours (admin)</button><div id="tddSessionStaff"></div></div>
+              <div style="margin:12px 0"><button class="btn btn-primary" onclick="availabilityStaffAction('tdd','open')">➕ Nouvelle session TDD</button> <button class="btn" onclick="availabilityStaffAction('tdd','close')">🔒 Clôturer</button><div id="tddSessionStaff"></div></div>
               <div id="pollStaffPanel" style="margin-bottom:16px;padding:14px;border:1px solid var(--border2);border-radius:12px">
                 <div style="font-size:12px;font-weight:800;margin-bottom:8px">🛡️ Corriger les votes (staff/admin)</div>
                 <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Le mot de passe choisi à l’ouverture du sondage est demandé pour chaque correction. « Non répondu » libère le pseudo.</div>
@@ -1685,25 +1685,6 @@ async function fetchAvailabilitySession(kind){
  if(kind==='tdd')updatePollEvBanner();
  return availabilityState[kind];
 }
-function showAdminRescueButtons(){
- document.querySelectorAll('[data-admin-rescue]').forEach(b=>{b.style.display=isAdmin()?'inline-block':'none';});
-}
-async function adminEmergencyClose(kind){
- if(!isAdmin()||!['tdd','canyon','t1'].includes(kind))return;
- const title={tdd:'TDD',canyon:'Canyon',t1:'Puissance T1'}[kind];
- if(!confirm('Clôturer en urgence le sondage '+title+' ? Les réponses seront conservées.'))return;
- const password=prompt('Confirme avec le mot de passe de ton compte administrateur (pas le code du sondage) :');
- if(!password)return;
- try{
-  const hash=await sha256(password);
-  if(kind==='canyon')await saveCanyonClosedRoles();
-  const {error}=await sb.rpc('admin_emergency_close_poll',{p_username:currentUser.username,p_password_hash:hash,p_kind:kind});
-  if(error)throw error;
-  if(kind==='t1'){await loadT1Staff();}
-  else{await fetchAvailabilitySession(kind);await loadAvailabilityStaff(kind);await loadPollResults();await loadCanyonPollResults();}
-  toast('Sondage '+title+' clôturé par l’administrateur.');
- }catch(e){alert('Clôture de secours impossible : '+e.message);}
-}
 // Le hash du compte reste uniquement en mémoire jusqu'au rechargement de la page.
 // Les RPC Supabase vérifient toujours le compte et le rôle à chaque action.
 let staffActionHash = null;
@@ -1738,7 +1719,7 @@ async function availabilityStaffAction(kind,action){
   toast(action==='open'?'Nouvelle session ouverte.':'Session clôturée.');
  }catch(e){alert('Action impossible : '+(e?.message||String(e)));}
 }
-async function loadAvailabilityStaff(kind){showAdminRescueButtons();
+async function loadAvailabilityStaff(kind){
  const el=document.getElementById(kind==='tdd'?'tddSessionStaff':'canyonSessionStaff');if(!el)return;
  const {data,error}=await sb.from('availability_sessions').select('id,label,status,opened_at').eq('kind',kind).order('opened_at',{ascending:false}).limit(1);
  if(error){el.textContent='Erreur : '+error.message;return;}
@@ -5883,7 +5864,7 @@ async function openT1StaffModal(){
   await loadT1Staff();
   await refreshT1ResponseCounter();
 }
-async function loadT1Staff(){showAdminRescueButtons();
+async function loadT1Staff(){
   const el=document.getElementById('t1StaffList');el.textContent='Chargement…';
   const [pr,rr]=await Promise.all([sb.from('participants').select('id,name,power_t1').order('name'),sb.from('t1_rounds').select('id,label,status,opened_at').order('opened_at',{ascending:false})]);
   const round=rr.data?.find(x=>x.status==='open');
@@ -6014,7 +5995,7 @@ function copyT1Link(){
 <div id="t1StaffModal" onclick="if(event.target===this)this.style.display='none'">
   <div class="t1-staff-card">
     <h3>⚡ Recensement T1</h3>
-    <p id="t1StaffRoundInfo" class="t1-help"></p><button class="btn btn-primary" onclick="t1StaffNewRound()">➕ Lancer un nouveau recensement</button> <button class="btn" onclick="t1StaffCloseRound()">🔒 Clôturer le recensement</button> <button class="btn" data-admin-rescue="t1" style="display:none;border-color:#e49b58" onclick="adminEmergencyClose('t1')">🛟 Clôture de secours (admin)</button><div id="t1CorrectionsPanel" style="margin:16px 0;padding:14px;border:1px solid var(--border2);border-radius:12px">
+    <p id="t1StaffRoundInfo" class="t1-help"></p><button class="btn btn-primary" onclick="t1StaffNewRound()">➕ Lancer un nouveau recensement</button> <button class="btn" onclick="t1StaffCloseRound()">🔒 Clôturer le recensement</button><div id="t1CorrectionsPanel" style="margin:16px 0;padding:14px;border:1px solid var(--border2);border-radius:12px">
       <div style="font-size:12px;font-weight:800">🛡️ Corriger les déclarations (staff/admin)</div>
       <p style="font-size:11px;color:var(--text3);margin:8px 0">Le mot de passe choisi à l’ouverture du sondage est demandé pour chaque correction.</p>
       <div id="t1StaffList" style="max-height:250px;overflow-y:auto;overflow-x:hidden"></div>
@@ -6034,7 +6015,7 @@ function copyT1Link(){
 <div id="canyonPollModal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.7);align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)this.style.display='none'">
   <div style="background:var(--surface2);border:1px solid var(--border2);border-radius:16px;padding:24px;width:100%;max-width:430px;max-height:90vh;overflow-y:auto">
     <h3>🏜️ Sondage Bataille du Canyon</h3>
-    <div style="margin-top:12px"><button class="btn btn-primary" onclick="availabilityStaffAction('canyon','open')">➕ Nouvelle session Canyon</button> <button class="btn" onclick="availabilityStaffAction('canyon','close')">🔒 Clôturer</button><button class="btn" data-admin-rescue="canyon" style="display:none;border-color:#e49b58" onclick="adminEmergencyClose('canyon')">🛟 Clôture de secours (admin)</button><div id="canyonSessionStaff"></div></div>
+    <div style="margin-top:12px"><button class="btn btn-primary" onclick="availabilityStaffAction('canyon','open')">➕ Nouvelle session Canyon</button> <button class="btn" onclick="availabilityStaffAction('canyon','close')">🔒 Clôturer</button><div id="canyonSessionStaff"></div></div>
           <div id="canyonPollStaffPanel" style="display:none;margin-bottom:16px;padding:14px;border:1px solid var(--border2);border-radius:12px">
             <strong>🛡️ Corriger les votes (staff/admin)</strong>
             <p style="font-size:11px;color:var(--text3);margin:8px 0">Le mot de passe choisi à l’ouverture du sondage est demandé pour chaque correction. « Non répondu » libère le pseudo.</p>
