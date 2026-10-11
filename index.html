@@ -1217,8 +1217,8 @@ body.light .poll-page{box-shadow:0 15px 45px rgba(0,0,0,.16)!important}
             <button class="btn btn-primary" id="balanceBtn" onclick="balanceTeams()">⚖️ Équilibrer et sauvegarder</button>
             <div style="display:flex;align-items:center;gap:8px;padding:0 10px;background:rgba(255,184,77,0.06);border:1px solid rgba(255,184,77,0.15);border-radius:var(--radius-lg);height:34px">
               <span style="font-size:11px;font-weight:700;color:var(--amber)">⚡ EL en priorité</span>
-              <button id="elPriorityBtn" onclick="toggleElPriority()" style="width:38px;height:20px;border-radius:99px;border:none;cursor:pointer;background:var(--border2);padding:2px;transition:background .2s">
-                <span id="elPriorityThumb" style="display:block;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .2s;transform:translateX(0px)"></span>
+              <button id="elPriorityBtn" onclick="toggleElPriority()" style="width:38px;height:20px;border-radius:99px;border:none;cursor:pointer;background:var(--amber);padding:2px;transition:background .2s">
+                <span id="elPriorityThumb" style="display:block;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .2s;transform:translateX(18px)"></span>
               </button>
             </div>
             <div style="display:flex;align-items:center;gap:8px;padding:0 10px;background:rgba(80,232,152,0.06);border:1px solid rgba(80,232,152,0.15);border-radius:var(--radius-lg);height:34px">
@@ -1457,7 +1457,7 @@ let tddNonRetenusWeek = '';
 const TDD_NON_RETENUS_CONFIG_KEY = 'tdd_non_retenus';   // mode asymétrique (grosse équipe A + petite équipe B)
 let _evSaving=false;    // true pendant saveEvTeamsToDB pour ignorer le realtime
 let evAsymSizeA=25;     // nombre de joueurs dans la grosse équipe A
-let evElPriority=false; // les joueurs les plus forts vont en Électrons libres en premier
+let evElPriority=true; // les joueurs les plus forts vont en Électrons libres en premier
 let evFairRotation=(()=>{try{return localStorage.getItem('tdd_fair_rotation')==='1';}catch(e){return false;}})();
 const TDD_FAIR_ROTATION_KEY='tdd_fair_rotation_stats';
 let tddFairStats={counts:{},starters:{},week:''};
@@ -2054,6 +2054,7 @@ async function initCanyonPoll(){
   }catch(e){document.getElementById('canyonPollNames').textContent='Erreur de chargement : '+e.message;}
 }
 async function refreshCanyonPoll(){
+  try{await fetchAvailabilitySession('canyon');}catch(e){console.warn('Statut session Canyon :',e);return;}
   const {data,error}=await sb.from('canyon_poll').select('participant_id,response');
   if(error)return;
   canyonPollResults=Object.fromEntries((data||[]).map(v=>[v.participant_id,v.response]));
@@ -2110,6 +2111,7 @@ async function submitCanyonPoll(response){
 }
 async function loadCanyonPollResults(){
   if(!sb)return;
+  try{await fetchAvailabilitySession('canyon');}catch(e){console.warn('Statut session Canyon :',e);return;}
   const {data,error}=await sb.from('canyon_poll').select('participant_id,response');
   if(error){console.warn('Canyon poll:',error);return;}
   canyonPollResults=Object.fromEntries((data||[]).map(v=>[v.participant_id,v.response]));
@@ -2627,13 +2629,27 @@ async function loadAll(){
 function subscribeRT(){
   if(!sb)return;
   // Subscribe to tdd_poll for real-time banner updates
+  // Synchronisation de la présélection TDD depuis les votes, comme pour Canyon.
+  // Ne modifie jamais les équipes déjà équilibrées.
+  async function refreshTddSelectionFromVotes(){
+    if(!sb || !availabilityState.tdd || !currentUser)return;
+    const {data,error}=await sb.from('tdd_poll').select('participant_id,response');
+    if(error){console.warn('Synchronisation TDD :',error);return;}
+    pollResults={};
+    (data||[]).forEach(r=>{pollResults[r.participant_id]=r.response;});
+    const voteRoles={present:'starter',remplacant:'sub',absent:'none'};
+    participants.forEach(p=>{evRoles[p.id]=voteRoles[pollResults[p.id]]||'none';});
+    updatePollEvBanner();renderPollStaffTable();renderEventPlayers();updateEvBanner();
+  }
+  // Rattrapage périodique si Supabase Realtime ne transmet pas un changement.
+  setInterval(()=>{if(availabilityState.tdd && currentUser)refreshTddSelectionFromVotes();},10000);
   sb.channel('tdd_poll_main').on('postgres_changes',{event:'*',schema:'public',table:'tdd_poll'},(payload)=>{
     const r=payload.new||payload.old;
     if(payload.eventType==='DELETE'){if(r)delete pollResults[r.participant_id];}
     else if(r){pollResults[r.participant_id]=r.response;}
     updatePollEvBanner();
     renderPollStaffTable();
-    renderEventPlayers();
+    refreshTddSelectionFromVotes();
   }).subscribe();
 
   sb.channel('t1_counter_management_sync').on('postgres_changes',{event:'*',schema:'public',table:'t1_submissions'},()=>refreshT1ResponseCounter()).on('postgres_changes',{event:'*',schema:'public',table:'t1_rounds'},()=>refreshT1ResponseCounter()).subscribe();
@@ -4553,6 +4569,8 @@ let canyonRoles   = {};   // {playerId: 'starter'|'sub'|'none'}
 // Les votes du sondage alimentent directement la présélection Canyon.
 // Ne modifie jamais les équipes déjà équilibrées (canyonTeams).
 function syncCanyonRolesFromPoll(){
+  // Une fois la session clôturée, préserver les choix manuels du staff.
+  if(!availabilityState.canyon)return;
   for(const [id,response] of Object.entries(canyonPollResults)){
     canyonRoles[id]=response==='present'?'starter':response==='remplacant'?'sub':'none';
   }
