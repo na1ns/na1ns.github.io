@@ -1702,6 +1702,20 @@ async function adminEmergencyClose(kind){
   toast('Sondage '+title+' clôturé par l’administrateur.');
  }catch(e){alert('Clôture de secours impossible : '+e.message);}
 }
+// Le hash du compte reste uniquement en mémoire jusqu'au rechargement de la page.
+// Les RPC Supabase vérifient toujours le compte et le rôle à chaque action.
+let staffActionHash = null;
+async function getStaffActionHash(){
+ if(!isAdminOrStaff() || !currentUser)throw new Error('Compte staff/admin requis.');
+ if(staffActionHash)return staffActionHash;
+ const password=prompt('Session restaurée : confirme une fois ton mot de passe staff/admin pour gérer les sondages :');
+ if(!password)return null;
+ const hash=await sha256(password);
+ const {data,error}=await sb.rpc('t1_staff_check',{p_username:currentUser.username,p_password_hash:hash});
+ if(error||!data)throw new Error('Mot de passe staff/admin incorrect.');
+ staffActionHash=hash;
+ return hash;
+}
 async function availabilityStaffAction(kind,action){
  if(!isAdminOrStaff())return;
  const session=availabilityState[kind];
@@ -1710,9 +1724,9 @@ async function availabilityStaffAction(kind,action){
  const label=action==='open'?prompt('Nom de la nouvelle session (ex. Semaine 42) :'):null;
  if(action==='open'&&!label?.trim())return;
  if(action!=='open'&&!confirm('Clôturer la session en cours ? Les votes seront conservés.'))return;
- const password=prompt('Mot de passe de ton compte staff/admin :');if(!password)return;
+ const hash=await getStaffActionHash();if(!hash)return;
  try{
-  const args={p_username:currentUser.username,p_account_hash:await sha256(password),p_kind:kind};
+  const args={p_username:currentUser.username,p_account_hash:hash,p_kind:kind};
   if(action==='open')args.p_label=label.trim();
   const {error}=await sb.rpc(action==='open'?'availability_session_open_v3':'availability_session_close_v3',args);
   if(error)throw error;
@@ -1976,11 +1990,11 @@ async function staffCorrectPoll(id,name,select){
   if(!isAdminOrStaff()) return;
   const old=pollResults[id]||'';
   const next=select.value;
-  const password=prompt('Mot de passe de ton compte staff/admin :');
-  if(!password){select.value=old;return;}
+  const hash=await getStaffActionHash();
+  if(!hash){select.value=old;return;}
   select.disabled=true;
   try{
-    const hash=await sha256(password);
+    
     const {error}=await sb.rpc('availability_correct_v3',{
       p_username:currentUser.username,p_account_hash:hash,
       p_kind:'tdd',p_participant_id:id,p_response:next||null
@@ -2120,11 +2134,11 @@ function renderCanyonPollStaff(){
 async function correctCanyonPoll(id,sel){
   if(!isAdminOrStaff())return;
   const old=canyonPollResults[id]||'',next=sel.value;
-  const password=prompt('Mot de passe de ton compte staff/admin :');
-  if(!password){sel.value=old;return;}
+  const hash=await getStaffActionHash();
+  if(!hash){sel.value=old;return;}
   sel.disabled=true;
   try{
-    const hash=await sha256(password);
+    
     const {error}=await sb.rpc('availability_correct_v3',{p_username:currentUser.username,p_account_hash:hash,p_kind:'canyon',p_participant_id:id,p_response:next||null});
     if(error)throw error;
     await loadCanyonPollResults();toast('Vote Canyon corrigé.');
@@ -2320,6 +2334,7 @@ async function doLogin(){
       btn.disabled=false;btn.innerHTML='Se connecter';return;
     }
     currentUser={username:data.username,role:data.role};
+    staffActionHash=(data.role==='admin'||data.role==='staff')?hash:null;
     const session={username:data.username,role:data.role,expires:remember?Date.now()+(SESSION_DURATION_DAYS*24*60*60*1000):null};
     if(remember){localStorage.setItem(SESSION_KEY,JSON.stringify(session));sessionStorage.removeItem(SESSION_KEY);}
     else{sessionStorage.setItem(SESSION_KEY,JSON.stringify(session));localStorage.removeItem(SESSION_KEY);}
@@ -2331,7 +2346,7 @@ async function doLogin(){
 }
 
 function doLogout(){
-  currentUser=null;localStorage.removeItem(SESSION_KEY);sessionStorage.removeItem(SESSION_KEY);
+  staffActionHash=null;currentUser=null;localStorage.removeItem(SESSION_KEY);sessionStorage.removeItem(SESSION_KEY);
   document.getElementById('appScreen').style.display='none';
   document.getElementById('loginScreen').style.display='flex';
   document.getElementById('loginUser').value='';
@@ -5802,9 +5817,9 @@ async function loadT1Staff(){showAdminRescueButtons();
   });
 }
 async function t1StaffViewImage(path){
-  const password=prompt('Mot de passe staff/admin pour consulter la capture :');if(!password)return;
+  const hash=await getStaffActionHash();if(!hash)return;
   try{
-    const hash=await sha256(password);
+    
     const {data,error}=await sb.rpc('t1_staff_check',{p_username:currentUser.username,p_password_hash:hash});
     if(error||!data)throw (error||new Error('Accès refusé'));
     const url=sb.storage.from('t1-captures').getPublicUrl(path).data.publicUrl;
@@ -5813,9 +5828,9 @@ async function t1StaffViewImage(path){
 }
 async function t1StaffCorrect(p,input){
   const power=t1ParsePower(input.value);if(!power){alert('Puissance invalide.');return;}
-  const password=prompt('Mot de passe de ton compte staff/admin pour corriger '+p.name+' :');if(!password)return;
+  const hash=await getStaffActionHash();if(!hash)return;
   try{
-    const hash=await sha256(password);
+    
     const {error}=await sb.rpc('t1_correct_power_v3',{p_username:currentUser.username,p_account_hash:hash,p_participant_id:p.id,p_power:power});
     if(error)throw error;
     toast('Puissance T1 corrigée.');await loadT1Staff();
@@ -5825,17 +5840,17 @@ async function t1StaffCorrect(p,input){
 async function t1StaffNewRound(){
  if(!isAdminOrStaff())return;
  const label=prompt('Nom du nouveau recensement (ex. 15 octobre 2026) :');if(!label?.trim())return;
- const password=prompt('Mot de passe de ton compte staff/admin pour autoriser l’ouverture :');if(!password)return;
+ const hash=await getStaffActionHash();if(!hash)return;
  try{
-  const {error}=await sb.rpc('t1_open_round_v3',{p_username:currentUser.username,p_account_hash:await sha256(password),p_label:label.trim()});
+  const {error}=await sb.rpc('t1_open_round_v3',{p_username:currentUser.username,p_account_hash:hash,p_label:label.trim()});
   if(error)throw error;toast('Nouveau recensement T1 ouvert.');await loadT1Staff();
  }catch(e){alert('Impossible d’ouvrir le recensement : '+e.message);}
 }
 async function t1StaffCloseRound(){
  if(!isAdminOrStaff()||!confirm('Clôturer le recensement T1 en cours ?'))return;
- const password=prompt('Mot de passe de ton compte staff/admin :');if(!password)return;
+ const hash=await getStaffActionHash();if(!hash)return;
  try{
-  const {error}=await sb.rpc('t1_close_round_v3',{p_username:currentUser.username,p_account_hash:await sha256(password)});
+  const {error}=await sb.rpc('t1_close_round_v3',{p_username:currentUser.username,p_account_hash:hash});
   if(error)throw error;toast('Recensement T1 clôturé.');await loadT1Staff();
  }catch(e){alert('Impossible de clôturer : '+e.message);}
 }
