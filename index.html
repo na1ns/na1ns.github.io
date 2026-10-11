@@ -974,6 +974,7 @@ body.light .poll-page{box-shadow:0 15px 45px rgba(0,0,0,.16)!important}
       <div class="section-body collapsed" id="participantsSection" style="max-height:0">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0 14px">
           <button class="btn btn-primary" type="button" onclick="openT1StaffModal()" title="Gérer les recensements T1 et copier le lien du sondage">⚡ Sondage puissances T1</button>
+          <span id="t1ResponseCounter" style="display:none;font-size:12px;color:var(--text2);font-weight:600" aria-live="polite"></span>
           <span style="font-size:12px;color:var(--text2)">Ouvrir la gestion du recensement et partager le lien aux joueurs.</span>
         </div>
         <div class="add-row" style="margin-top:6px">
@@ -1715,22 +1716,24 @@ async function getStaffActionHash(){
  return null;
 }
 async function availabilityStaffAction(kind,action){
- if(!isAdminOrStaff())return;
- const session=availabilityState[kind];
- if(action==='open' && session){alert('Clôture d’abord la session en cours.');return;}
- if(action!=='open' && !session){alert('Aucune session ouverte.');return;}
- const label=action==='open'?prompt('Nom de la nouvelle session (ex. Semaine 42) :'):null;
- if(action==='open'&&!label?.trim())return;
- if(action!=='open'&&!confirm('Clôturer la session en cours ? Les votes seront conservés.'))return;
- const hash=await getStaffActionHash();if(!hash)return;
+ if(!isAdminOrStaff()){alert('Connecte-toi avec un compte staff ou administrateur pour gérer le sondage.');return;}
  try{
+  // Ne pas se fier à l'état local : il peut être périmé après une ouverture ou un rechargement.
+  await fetchAvailabilitySession(kind);
+  const session=availabilityState[kind];
+  if(action==='open' && session){alert('Une session est déjà ouverte. Clôture-la d’abord.');return;}
+  if(action==='close' && !session){alert('Aucune session ouverte à clôturer.');return;}
+  const label=action==='open'?prompt('Nom de la nouvelle session (ex. Semaine 42) :'):null;
+  if(action==='open'&&!label?.trim())return;
+  if(action==='close'&&!confirm('Clôturer la session en cours ? Les votes seront conservés.'))return;
+  const hash=await getStaffActionHash();if(!hash)return;
   const args={p_username:currentUser.username,p_account_hash:hash,p_kind:kind};
   if(action==='open')args.p_label=label.trim();
   const {error}=await sb.rpc(action==='open'?'availability_session_open_v3':'availability_session_close_v3',args);
   if(error)throw error;
   await fetchAvailabilitySession(kind);await loadAvailabilityStaff(kind);await loadPollResults();await loadCanyonPollResults();
   toast(action==='open'?'Nouvelle session ouverte.':'Session clôturée.');
- }catch(e){alert('Action impossible : '+e.message);}
+ }catch(e){alert('Action impossible : '+(e?.message||String(e)));}
 }
 async function loadAvailabilityStaff(kind){showAdminRescueButtons();
  const el=document.getElementById(kind==='tdd'?'tddSessionStaff':'canyonSessionStaff');if(!el)return;
@@ -1861,7 +1864,7 @@ async function submitPollVote(response){
     }
     pollResults[pollSelectedId]=response;
     localStorage.setItem(participationKey('tdd',availabilityState.tdd.id),String(pollSelectedId));
-    // Les votes ne modifient pas automatiquement les compositions ou rôles des équipes.
+    // Le trigger Supabase synchronise le rôle TDD ; les équipes déjà équilibrées restent inchangées.
     showPollConfirm(response,true);
   }catch(e){
     console.error('Vote TDD:',e);
@@ -2054,6 +2057,7 @@ async function refreshCanyonPoll(){
   const {data,error}=await sb.from('canyon_poll').select('participant_id,response');
   if(error)return;
   canyonPollResults=Object.fromEntries((data||[]).map(v=>[v.participant_id,v.response]));
+  syncCanyonRolesFromPoll();
   renderCanyonPollNames();renderCanyonPollStaff();updateCanyonPollCounts();renderCanyonPlayers();
 }
 function renderCanyonPollNames(){
@@ -2094,6 +2098,8 @@ async function submitCanyonPoll(response){
       throw error;
     }
     canyonPollResults[canyonPollSelected.id]=response;
+    syncCanyonRolesFromPoll();
+    renderCanyonPlayers();
     updateCanyonPollCounts();
     localStorage.setItem(participationKey('canyon',availabilityState.canyon.id),String(canyonPollSelected.id));
     document.getElementById('canyonPollConfirmIcon').textContent=canyonPollIcons[response];
@@ -2107,6 +2113,7 @@ async function loadCanyonPollResults(){
   const {data,error}=await sb.from('canyon_poll').select('participant_id,response');
   if(error){console.warn('Canyon poll:',error);return;}
   canyonPollResults=Object.fromEntries((data||[]).map(v=>[v.participant_id,v.response]));
+  syncCanyonRolesFromPoll();
   updateCanyonPollCounts();renderCanyonPollStaff();renderCanyonPlayers();renderCanyonTeams();
 }
 function updateCanyonPollCounts(){
@@ -2612,6 +2619,7 @@ async function loadAll(){
   renderCanyonPlayers();
   loadPollResults();
   loadCanyonPollResults();
+  refreshT1ResponseCounter();
     loadDrawBuffer();
   }catch(e){setStatus('err','Erreur : '+(e.message||e));}
 }
@@ -2627,6 +2635,8 @@ function subscribeRT(){
     renderPollStaffTable();
     renderEventPlayers();
   }).subscribe();
+
+  sb.channel('t1_counter_management_sync').on('postgres_changes',{event:'*',schema:'public',table:'t1_submissions'},()=>refreshT1ResponseCounter()).on('postgres_changes',{event:'*',schema:'public',table:'t1_rounds'},()=>refreshT1ResponseCounter()).subscribe();
 
   sb.channel('canyon_poll_management_sync').on('postgres_changes',{event:'*',schema:'public',table:'canyon_poll'},()=>{loadCanyonPollResults();}).subscribe();
   sb.channel('canyon_session_management_sync').on('postgres_changes',{event:'*',schema:'public',table:'availability_sessions'},async()=>{try{await fetchAvailabilitySession('canyon');await loadCanyonPollResults();}catch(e){console.warn('Session Canyon :',e);}}).subscribe();
@@ -4540,6 +4550,14 @@ let canyonNbTeams = 1;
 const CANYON_STARTERS_PER_TEAM = 20;
 const CANYON_SUBS_PER_TEAM = 10;
 let canyonRoles   = {};   // {playerId: 'starter'|'sub'|'none'}
+// Les votes du sondage alimentent directement la présélection Canyon.
+// Ne modifie jamais les équipes déjà équilibrées (canyonTeams).
+function syncCanyonRolesFromPoll(){
+  for(const [id,response] of Object.entries(canyonPollResults)){
+    canyonRoles[id]=response==='present'?'starter':response==='remplacant'?'sub':'none';
+  }
+}
+
 let canyonTeams   = null; // {A: {starters: [...], subs: [...]}, B: {...}|null}
 
 function setCanyonNbTeams(n){
@@ -5799,11 +5817,31 @@ async function t1Submit(){
     await refreshT1Select();
   }finally{t1Busy=false;document.getElementById('t1SubmitBtn').disabled=false;}
 }
+// Nombre de déclarations pour le recensement T1 actuellement ouvert.
+let t1CounterRequestInFlight=false;
+async function refreshT1ResponseCounter(){
+  const el=document.getElementById('t1ResponseCounter');
+  if(!el||!sb||t1CounterRequestInFlight)return;
+  t1CounterRequestInFlight=true;
+  try{
+    const {data:rounds,error:roundError}=await sb.from('t1_rounds').select('id').eq('status','open').order('opened_at',{ascending:false}).limit(1);
+    if(roundError)throw roundError;
+    if(!rounds?.length){el.style.display='none';el.textContent='';return;}
+    const {count,error}=await sb.from('t1_submissions').select('participant_id',{count:'exact',head:true}).eq('round_id',rounds[0].id);
+    if(error)throw error;
+    el.textContent=(count??0)+' réponse'+(count===1?'':'s');
+    el.style.display='inline';
+  }catch(e){console.warn('Compteur T1 :',e);el.style.display='none';}
+  finally{t1CounterRequestInFlight=false;}
+}
+// Le compteur se rafraîchit même lorsque la publication Realtime n'est pas activée.
+setInterval(()=>{if(currentUser)refreshT1ResponseCounter();},15000);
 async function openT1StaffModal(){
   const modal=document.getElementById('t1StaffModal');modal.style.display='flex';
   document.getElementById('t1ShareLink').value=t1Url();
   if(!isAdminOrStaff()){document.getElementById('t1StaffList').textContent='Seul le staff peut consulter et corriger les déclarations.';return;}
   await loadT1Staff();
+  await refreshT1ResponseCounter();
 }
 async function loadT1Staff(){showAdminRescueButtons();
   const el=document.getElementById('t1StaffList');el.textContent='Chargement…';
@@ -5812,6 +5850,7 @@ async function loadT1Staff(){showAdminRescueButtons();
   const sr=round?await sb.from('t1_submissions').select('participant_id,power,image_path,updated_at').eq('round_id',round.id):{data:[],error:null};
   if(pr.error||rr.error||sr.error){el.textContent='Erreur : '+(pr.error||rr.error||sr.error).message;return;}
   document.getElementById('t1StaffRoundInfo').textContent=round?'🟢 Sondage en cours — '+round.label:'🔒 Sondage clos';
+  refreshT1ResponseCounter();
   const entries=Object.fromEntries((sr.data||[]).map(x=>[x.participant_id,x]));el.replaceChildren();
   (pr.data||[]).forEach(p=>{
     const v=entries[p.id];const row=document.createElement('div');row.className='t1-staff-row';
@@ -5854,7 +5893,8 @@ async function t1StaffNewRound(){
  }catch(e){alert('Impossible d’ouvrir le recensement : '+e.message);}
 }
 async function t1StaffCloseRound(){
- if(!isAdminOrStaff()||!confirm('Clôturer le recensement T1 en cours ?'))return;
+ if(!isAdminOrStaff()){alert('Connecte-toi avec un compte staff ou administrateur pour clôturer le recensement.');return;}
+ if(!confirm('Clôturer le recensement T1 en cours ?'))return;
  const hash=await getStaffActionHash();if(!hash)return;
  try{
   const {error}=await sb.rpc('t1_close_round_v3',{p_username:currentUser.username,p_account_hash:hash});
