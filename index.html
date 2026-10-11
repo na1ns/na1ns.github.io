@@ -4565,10 +4565,6 @@ async function restoreCanyonClosedRoles(){
   if(error){console.warn('Présélection Canyon:',error);return;}
   if(data?.value?.roles && typeof data.value.roles==='object'){
     canyonRoles={...data.value.roles};
-  }else if(!Object.keys(canyonRoles).length){
-    // Compatibilité : ancienne session clôturée avant la mise en place de la sauvegarde.
-    for(const [id,response] of Object.entries(canyonPollResults))
-      canyonRoles[id]=response==='present'?'starter':response==='remplacant'?'sub':'none';
   }
 }
 function syncCanyonRolesFromPoll(){
@@ -4792,9 +4788,26 @@ async function resetCanyonTeams(){
   if(!confirm('Réinitialiser les équipes Canyon ?')) return;
   canyonTeams = null;
   canyonRoles = {};
+  // Enregistrer aussi la sélection vide : sinon l'ancienne présélection clôturée
+  // serait restaurée au prochain rechargement de la page.
+  if(sb){
+    try{
+      const {error:rolesError}=await sb.from('app_config').upsert(
+        {key:'canyon_closed_roles',value:{roles:{},saved_at:new Date().toISOString()}},
+        {onConflict:'key'}
+      );
+      if(rolesError)throw rolesError;
+      const {error:teamsError}=await sb.from('app_config').delete().eq('key','canyon_teams');
+      if(teamsError)throw teamsError;
+    }catch(e){
+      alert('Réinitialisation non enregistrée dans Supabase : '+(e?.message||String(e)));
+      await loadCanyonPollResults();
+      return;
+    }
+  }
   renderCanyonPlayers();
   renderCanyonTeams();
-  if(sb) await sb.from('app_config').delete().eq('key','canyon_teams');
+  updateCanyonSelectionSummary();
   toast('Équipes Canyon réinitialisées');
 }
 
