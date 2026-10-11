@@ -1180,6 +1180,7 @@ body.light .poll-page{box-shadow:0 15px 45px rgba(0,0,0,.16)!important}
                 <button class="btn" style="flex:1;height:36px;font-size:12px" onclick="window.open(document.getElementById('pollLinkInput').value,'_blank')">↗ Ouvrir</button>
                 <button class="btn" style="flex:1;height:36px;font-size:12px" onclick="closePollModal()">Fermer</button>
               </div>
+              <div style="margin:12px 0"><button class="btn btn-primary" onclick="availabilityStaffAction('tdd','open')">➕ Nouvelle session TDD</button> <button class="btn" onclick="availabilityStaffAction('tdd','close')">🔒 Clôturer</button><div id="tddSessionStaff"></div><div id="tddSessionHistory" style="max-height:180px;overflow:auto;font-size:12px"></div></div>
               <div id="pollStaffPanel" style="border-top:1px solid var(--border);padding-top:14px">
                 <div style="font-size:12px;font-weight:800;margin-bottom:8px">🛡️ Corriger les votes (staff/admin)</div>
                 <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Un mot de passe staff/admin est demandé pour chaque correction. « Non répondu » libère le pseudo.</div>
@@ -1651,6 +1652,62 @@ CREATE POLICY "perm_all" ON app_config
 // ───────────────────────────────────────────────────────────────────────────
 
 
+// Sessions TDD / Canyon et verrouillage local par session.
+const availabilityState={tdd:null,canyon:null};
+function participationKey(kind,id){return 'alliance_vote_'+kind+'_'+id;}
+function participationLocked(kind){const session=availabilityState[kind];return !!(session&&localStorage.getItem(participationKey(kind,session.id)));}
+function availabilityPublicStatus(kind){
+ const session=availabilityState[kind];const prefix=kind==='tdd'?'poll':'canyonPoll';
+ const closed=!session,locked=participationLocked(kind);
+ const msg=document.getElementById(prefix+'Gate');
+ if(msg){msg.style.display=(closed||locked)?'block':'none';msg.textContent=closed?'Ce sondage est clôturé. Reviens à la prochaine session.':'Tu as déjà participé à cette session. Tu pourras voter à la prochaine ouverture.';}
+ const steps=kind==='tdd'?['pollStep1','pollStep2','pollStep3']:['canyonPollStep1','canyonPollStep2','canyonPollStep3'];
+ if(closed||locked)steps.forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
+ return !(closed||locked);
+}
+async function fetchAvailabilitySession(kind){
+ const {data,error}=await sb.from('availability_sessions').select('id,label,opened_at').eq('kind',kind).eq('status','open').order('opened_at',{ascending:false}).limit(1);
+ if(error)throw error;
+ availabilityState[kind]=data?.[0]||null;
+ const title=document.getElementById(kind==='tdd'?'pollSessionLabel':'canyonSessionLabel');
+ if(title)title.textContent=availabilityState[kind]?'Session : '+availabilityState[kind].label:'Aucune session ouverte';
+ return availabilityState[kind];
+}
+async function availabilityStaffAction(kind,action){
+ if(!isAdminOrStaff())return;
+ const label=action==='open'?prompt('Nom de la nouvelle session (ex. Semaine 42) :'):null;
+ if(action==='open'&&!label?.trim())return;
+ if(!confirm(action==='open'?'Ouvrir une nouvelle session ? La précédente sera clôturée.':'Clôturer la session en cours ?'))return;
+ const password=prompt('Mot de passe staff/admin :');if(!password)return;
+ try{
+  const hash=await sha256(password);
+  const {error}=await sb.rpc('availability_staff_session',{p_username:currentUser.username,p_password_hash:hash,p_kind:kind,p_action:action,p_label:label?.trim()||null});
+  if(error)throw error;
+  await loadAvailabilityStaff(kind);await loadPollResults();await loadCanyonPollResults();
+  toast(action==='open'?'Nouvelle session ouverte.':'Session clôturée.');
+ }catch(e){alert('Action impossible : '+e.message);}
+}
+async function loadAvailabilityStaff(kind){
+ const el=document.getElementById(kind==='tdd'?'tddSessionStaff':'canyonSessionStaff');if(!el)return;
+ const {data,error}=await sb.from('availability_sessions').select('id,label,status,opened_at,closed_at').eq('kind',kind).order('opened_at',{ascending:false});
+ if(error){el.textContent='Erreur : '+error.message;return;}
+ const sessions=data||[];const active=sessions.find(x=>x.status==='open');
+ el.replaceChildren();
+ const head=document.createElement('p');head.textContent=active?'Ouvert : '+active.label:'Aucun sondage ouvert';el.appendChild(head);
+ const list=document.createElement('details');const summary=document.createElement('summary');summary.textContent='Historique des sessions ('+sessions.length+')';list.appendChild(summary);
+ for(const session of sessions){
+  const btn=document.createElement('button');btn.className='btn';btn.style.cssText='display:block;margin:6px 0;width:100%;text-align:left';
+  btn.textContent=session.label+' — '+(session.status==='open'?'Ouvert':'Clôturé');
+  btn.onclick=async()=>{
+   const {data:votes,error:e}=await sb.from('availability_votes').select('participant_name,response').eq('session_id',session.id).order('participant_name');
+   if(e){alert(e.message);return;}
+   const out=document.getElementById(kind==='tdd'?'tddSessionHistory':'canyonSessionHistory');
+   out.replaceChildren();const title=document.createElement('strong');title.textContent=session.label+' ('+(votes||[]).length+' réponses)';out.appendChild(title);
+   (votes||[]).forEach(v=>{const row=document.createElement('div');row.textContent=v.participant_name+' : '+({present:'Présent',remplacant:'Remplaçant',absent:'Absent'}[v.response]||v.response);out.appendChild(row);});
+  };list.appendChild(btn);
+ }
+ el.appendChild(list);
+}
 // ══ SYSTÈME DE SONDAGE TDD ══════════════════════════════════════════════════
 let pollParticipants = [];
 let pollResults = {};
@@ -1676,6 +1733,9 @@ function checkPollMode(){
 
 async function initPollPage(){
   if(!sb){ setTimeout(initPollPage, 200); return; }
+  await fetchAvailabilitySession('tdd');
+  if(!availabilityPublicStatus('tdd'))return;
+  sb.channel('tdd_sessions_public').on('postgres_changes',{event:'*',schema:'public',table:'availability_sessions'},()=>initPollPage()).subscribe();
   // Charger les participants (critique — erreur bloquante)
   try{
     const pRes = await sb.from('participants').select('id,name').order('name');
@@ -1756,9 +1816,7 @@ async function submitPollVote(response){
   document.querySelectorAll('.poll-choice').forEach(b=>b.disabled=true);
   try{
     // INSERT uniquement : la clé primaire et la politique SQL bloquent le second vote.
-    const {error}=await sb.from('tdd_poll').insert({
-      participant_id:pollSelectedId, participant_name:pollSelectedName, response
-    });
+    const {error}=await sb.rpc('availability_submit',{p_kind:'tdd',p_session_id:availabilityState.tdd.id,p_participant_id:pollSelectedId,p_response:response});
     if(error){
       if(error.code==='23505'){
         await loadPollResults();
@@ -1769,12 +1827,8 @@ async function submitPollVote(response){
       throw error;
     }
     pollResults[pollSelectedId]=response;
-    // Conserver la synchronisation des rôles existante.
-    const roleResult=await sb.from('event_roles').upsert({
-      player_id:pollSelectedId,role:POLL_ROLE_MAP[response],nb_teams:1,
-      updated_at:new Date().toISOString()
-    },{onConflict:'player_id'});
-    if(roleResult.error) console.warn('Synchronisation rôle TDD:',roleResult.error);
+    localStorage.setItem(participationKey('tdd',availabilityState.tdd.id),String(pollSelectedId));
+    // Les votes ne modifient pas automatiquement les compositions ou rôles des équipes.
     showPollConfirm(response,true);
   }catch(e){
     console.error('Vote TDD:',e);
@@ -1800,6 +1854,7 @@ function showPollConfirm(response, isNew){
     + '<span class="poll-summary-pill remplacant">🔄 ' + counts.remplacant + ' remplaçant' + (counts.remplacant>1?'s':'') + '</span>'
     + '<span class="poll-summary-pill absent">❌ ' + counts.absent + ' absent' + (counts.absent>1?'s':'') + '</span>';
   pollStep(3);
+  // Confirmation visible, puis formulaire bloqué au prochain chargement.
 }
 
 function getPollCounts(){
@@ -1814,6 +1869,7 @@ function pollStep(n){
     const el = document.getElementById('pollStep' + i);
     if(el) el.style.display = (String(i) === String(n)) ? '' : 'none';
   });
+  if(n === 1 && !availabilityPublicStatus('tdd'))return;
   if(n === 1){
     const inp = document.getElementById('pollSearchInp');
     if(inp) inp.value = '';
@@ -1861,6 +1917,7 @@ function openPollModal(){
   const staffPanel=document.getElementById('pollStaffPanel');
   if(staffPanel) staffPanel.style.display=isAdminOrStaff()?'':'none';
   renderPollStaffTable();
+  loadAvailabilityStaff('tdd');
   modal.style.display = 'flex';
 }
 
@@ -1905,20 +1962,12 @@ async function staffCorrectPoll(id,name,select){
   select.disabled=true;
   try{
     const hash=await sha256(password);
-    const {error}=await sb.rpc('tdd_staff_set_vote',{
+    const {error}=await sb.rpc('availability_staff_correct',{
       p_username:currentUser.username,p_password_hash:hash,
-      p_participant_id:id,p_response:next||null
+      p_kind:'tdd',p_participant_id:id,p_response:next||null
     });
     if(error) throw error;
     if(next)pollResults[id]=next;else delete pollResults[id];
-    if(next){
-      const roleResult=await sb.from('event_roles').upsert({player_id:id,role:POLL_ROLE_MAP[next],nb_teams:1,updated_at:new Date().toISOString()},{onConflict:'player_id'});
-      if(roleResult.error) console.warn(roleResult.error);
-    }
-    else {
-      const roleResult=await sb.from('event_roles').upsert({player_id:id,role:'none',nb_teams:1,updated_at:new Date().toISOString()},{onConflict:'player_id'});
-      if(roleResult.error) console.warn(roleResult.error);
-    }
     updatePollEvBanner();renderEventPlayers();toast('Vote TDD mis à jour.');
   }catch(e){select.value=old;alert('Correction impossible : '+(e.message||e));}
   finally{select.disabled=false;}
@@ -1939,6 +1988,7 @@ function openCanyonPollModal(){
   const input=document.getElementById('canyonPollLink');if(input)input.value=url;
   const modal=document.getElementById('canyonPollModal');if(modal)modal.style.display='flex';
   loadCanyonPollResults();
+  loadAvailabilityStaff('canyon');
 }
 function copyCanyonPollLink(){
   const url=canyonPollUrl();
@@ -1953,6 +2003,9 @@ function checkCanyonPollMode(){
 async function initCanyonPoll(){
   if(!sb){setTimeout(initCanyonPoll,200);return;}
   try{
+    await fetchAvailabilitySession('canyon');
+    if(!availabilityPublicStatus('canyon'))return;
+    sb.channel('canyon_sessions_public').on('postgres_changes',{event:'*',schema:'public',table:'availability_sessions'},()=>initCanyonPoll()).subscribe();
     const [pr,vr]=await Promise.all([
       sb.from('participants').select('id,name').order('name'),
       sb.from('canyon_poll').select('participant_id,response')
@@ -1996,19 +2049,20 @@ function renderCanyonPollNames(){
 
 function canyonPollStep(n){
   [1,2,3].forEach(i=>document.getElementById('canyonPollStep'+i).style.display=i===n?'':'none');
-  if(n===1){canyonPollSelected=null;renderCanyonPollNames();}
+  if(n===1){if(!availabilityPublicStatus('canyon'))return;canyonPollSelected=null;renderCanyonPollNames();}
 }
 async function submitCanyonPoll(response){
   if(!canyonPollSelected||canyonPollPending||!['present','remplacant','absent'].includes(response))return;
   canyonPollPending=true;
   document.querySelectorAll('#canyonPollStep2 button.poll-choice').forEach(b=>b.disabled=true);
   try{
-    const {error}=await sb.from('canyon_poll').insert({participant_id:canyonPollSelected.id,participant_name:canyonPollSelected.name,response});
+    const {error}=await sb.rpc('availability_submit',{p_kind:'canyon',p_session_id:availabilityState.canyon.id,p_participant_id:canyonPollSelected.id,p_response:response});
     if(error){
       if(error.code==='23505'){await refreshCanyonPoll();alert('Ce pseudo a déjà voté.');canyonPollStep(1);return;}
       throw error;
     }
     canyonPollResults[canyonPollSelected.id]=response;
+    localStorage.setItem(participationKey('canyon',availabilityState.canyon.id),String(canyonPollSelected.id));
     document.getElementById('canyonPollConfirmIcon').textContent=canyonPollIcons[response];
     document.getElementById('canyonPollConfirmText').textContent=canyonPollSelected.name+' : vote enregistré ('+({present:'Présent',remplacant:'Remplaçant',absent:'Absent'}[response])+').';
     canyonPollStep(3);
@@ -2047,7 +2101,7 @@ async function correctCanyonPoll(id,sel){
   sel.disabled=true;
   try{
     const hash=await sha256(password);
-    const {error}=await sb.rpc('canyon_staff_set_vote',{p_username:currentUser.username,p_password_hash:hash,p_participant_id:id,p_response:next||null});
+    const {error}=await sb.rpc('availability_staff_correct',{p_username:currentUser.username,p_password_hash:hash,p_kind:'canyon',p_participant_id:id,p_response:next||null});
     if(error)throw error;
     await loadCanyonPollResults();toast('Vote Canyon corrigé.');
   }catch(e){sel.value=old;alert('Correction impossible : '+e.message);}
@@ -5540,6 +5594,11 @@ async function initT1Poll(){
     if(p.error)throw p.error;if(r.error)throw r.error;
     t1CurrentRound=r.data?.[0]||null;t1Players=p.data||[];
     await refreshT1Select();
+    const locked=t1CurrentRound&&localStorage.getItem(participationKey('t1',t1CurrentRound.id));
+    document.getElementById('t1Form').style.display=(!t1CurrentRound||locked)?'none':'block';
+    document.getElementById('t1Success').style.display=locked?'block':'none';
+    if(locked)document.getElementById('t1SuccessText').textContent='Tu as déjà participé à ce recensement. Reviens lors de la prochaine session.';
+    const closedInfo=document.getElementById('t1ClosedInfo');if(closedInfo)closedInfo.style.display=!t1CurrentRound?'block':'none';
     document.getElementById('t1RoundLabel').textContent=t1CurrentRound?'Recensement : '+t1CurrentRound.label:'Aucun recensement ouvert';
     renderT1Select();
     sb.channel('t1_poll_public').on('postgres_changes',{event:'*',schema:'public',table:'t1_submissions'},()=>refreshT1Select()).on('postgres_changes',{event:'*',schema:'public',table:'t1_rounds'},()=>initT1Poll()).subscribe();
@@ -5682,7 +5741,7 @@ async function t1Submit(){
     t1Status('Enregistrement de la puissance…');
     const {error}=await sb.rpc('t1_submit_once',{p_participant_id:id,p_power:power,p_image_path:imagePath,p_round_id:t1CurrentRound.id});
     if(error)throw error;
-    t1Entries[id]=true;document.getElementById('t1Form').style.display='none';
+    t1Entries[id]=true;localStorage.setItem(participationKey('t1',t1CurrentRound.id),String(id));document.getElementById('t1Form').style.display='none';
     document.getElementById('t1Success').style.display='block';
     document.getElementById('t1SuccessText').textContent=p.name+' — '+t1FormatPower(power)+' enregistrés.';
   }catch(e){
@@ -5793,6 +5852,7 @@ function copyT1Link(){
     <div class="poll-logo">⚡</div><div class="poll-guild">Les Nains de Mithril</div>
     <div class="poll-title">Recensement Puissance T1</div><div id="t1RoundLabel" class="t1-help">Chargement du recensement…</div>
     <div class="poll-subtitle">Pour déclarer ta puissance T1, ajoute une capture d’écran de ton équipe <strong>ou</strong> renseigne directement ta puissance manuellement. Une seule déclaration par joueur et par recensement.</div>
+    <div id="t1ClosedInfo" class="poll-confirm-card" style="display:none">Aucun recensement ouvert. Reviens à la prochaine session.</div>
     <div id="t1Form">
       <div class="poll-step-label">Ton pseudo</div>
       <select id="t1Player" class="t1-field"><option value="">Chargement…</option></select>
@@ -5842,6 +5902,7 @@ function copyT1Link(){
     <h3>🏜️ Sondage Bataille du Canyon</h3>
     <p style="font-size:12px;color:var(--text2);margin:10px 0">Partage ce lien unique aux membres de l'alliance.</p>
     <input id="canyonPollLink" readonly style="width:100%;padding:10px;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:8px">
+    <div style="margin-top:12px"><button class="btn btn-primary" onclick="availabilityStaffAction('canyon','open')">➕ Nouvelle session Canyon</button> <button class="btn" onclick="availabilityStaffAction('canyon','close')">🔒 Clôturer</button><div id="canyonSessionStaff"></div><div id="canyonSessionHistory" style="max-height:180px;overflow:auto;font-size:12px"></div></div>
     <div style="display:flex;gap:8px;margin-top:12px">
       <button class="btn btn-primary" onclick="copyCanyonPollLink()">📋 Copier</button>
       <button class="btn" onclick="window.open(canyonPollUrl(),'_blank')">↗ Ouvrir</button>
@@ -5854,6 +5915,7 @@ function copyT1Link(){
     <div class="poll-logo">🏜️</div><div class="poll-guild">Les Nains de Mithril</div>
     <div class="poll-title">Bataille du Canyon</div>
     <div class="poll-subtitle">Indique ta disponibilité. Un seul vote par joueur.</div>
+    <p id="canyonSessionLabel" class="t1-help">Chargement de la session…</p><div id="canyonPollGate" class="poll-confirm-card" style="display:none"></div>
     <div id="canyonPollStep1">
       <div class="poll-step-label">Qui es-tu ?</div>
       <div class="poll-step-label" style="margin-bottom:10px">Sélectionne ton pseudo dans la liste</div>
@@ -5871,7 +5933,7 @@ function copyT1Link(){
     </div>
     <div id="canyonPollStep3" style="display:none">
       <div class="poll-confirm-card"><div class="poll-confirm-icon" id="canyonPollConfirmIcon"></div><div class="poll-confirm-msg" id="canyonPollConfirmText"></div><div class="poll-confirm-sub">Ta réponse est verrouillée. Contacte le staff pour une correction.</div></div>
-      <button class="poll-back-btn" onclick="canyonPollStep(1)">Retour aux pseudos disponibles</button>
+      
     </div>
   </div>
 </div>
@@ -5884,6 +5946,7 @@ function copyT1Link(){
     <div class="poll-subtitle">Indique ta disponibilité pour l'événement.<br>Ta réponse s'applique immédiatement.</div>
 
     <!-- Étape 1 : choisir son nom -->
+    <p id="pollSessionLabel" class="t1-help">Chargement de la session…</p><div id="pollGate" class="poll-confirm-card" style="display:none"></div>
     <div id="pollStep1">
       <div class="poll-step-label">Qui es-tu ?</div>
       <div class="poll-search-wrap">
@@ -5935,7 +5998,7 @@ function copyT1Link(){
         <div class="poll-confirm-sub" id="pollConfirmSub"></div>
         <div class="poll-summary" id="pollConfirmSummary"></div>
       </div>
-      <button class="poll-back-btn" style="margin-top:20px" onclick="pollStep(1)">Retour à la liste des joueurs</button>
+      
     </div>
   </div>
 </div>
