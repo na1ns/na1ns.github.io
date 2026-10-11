@@ -1708,13 +1708,11 @@ let staffActionHash = null;
 async function getStaffActionHash(){
  if(!isAdminOrStaff() || !currentUser)throw new Error('Compte staff/admin requis.');
  if(staffActionHash)return staffActionHash;
- const password=prompt('Session restaurée : confirme une fois ton mot de passe staff/admin pour gérer les sondages :');
- if(!password)return null;
- const hash=await sha256(password);
- const {data,error}=await sb.rpc('t1_staff_check',{p_username:currentUser.username,p_password_hash:hash});
- if(error||!data)throw new Error('Mot de passe staff/admin incorrect.');
- staffActionHash=hash;
- return hash;
+ // Une connexion restaurée ne suffit pas à autoriser les RPC sensibles :
+ // le hash du mot de passe n'est volontairement jamais sauvegardé dans le navigateur.
+ alert('Pour gérer les sondages, reconnecte-toi avec ton compte staff/admin. Tu ne devras ensuite plus saisir de mot de passe pour ouvrir, clôturer ou corriger les sondages.');
+ doLogout();
+ return null;
 }
 async function availabilityStaffAction(kind,action){
  if(!isAdminOrStaff())return;
@@ -2365,6 +2363,15 @@ async function checkSession(){
       const session=JSON.parse(saved);
       if(isPersistent&&session.expires&&Date.now()>session.expires){localStorage.removeItem(SESSION_KEY);document.getElementById('loginScreen').style.display='flex';return;}
       const{data}=await sb.from('app_users').select('role').eq('username',session.username).single();
+      // Une session staff/admin restaurée après rechargement ne possède plus
+      // le secret de validation des RPC. Exiger une connexion normale plutôt
+      // que de redemander un mot de passe au moment d'ouvrir un sondage.
+      if(['staff','admin'].includes(data?.role||session.role)){
+        localStorage.removeItem(SESSION_KEY);
+        sessionStorage.removeItem(SESSION_KEY);
+        document.getElementById('loginScreen').style.display='flex';
+        return;
+      }
       currentUser={username:session.username,role:data?data.role:session.role};
       showApp();return;
     }catch{localStorage.removeItem(SESSION_KEY);sessionStorage.removeItem(SESSION_KEY);}
