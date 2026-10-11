@@ -1696,6 +1696,7 @@ async function adminEmergencyClose(kind){
  if(!password)return;
  try{
   const hash=await sha256(password);
+  if(kind==='canyon')await saveCanyonClosedRoles();
   const {error}=await sb.rpc('admin_emergency_close_poll',{p_username:currentUser.username,p_password_hash:hash,p_kind:kind});
   if(error)throw error;
   if(kind==='t1'){await loadT1Staff();}
@@ -1729,6 +1730,8 @@ async function availabilityStaffAction(kind,action){
   const hash=await getStaffActionHash();if(!hash)return;
   const args={p_username:currentUser.username,p_account_hash:hash,p_kind:kind};
   if(action==='open')args.p_label=label.trim();
+  // Avant la clôture, figer la présélection Canyon, sans toucher aux équipes équilibrées.
+  if(kind==='canyon'&&action==='close')await saveCanyonClosedRoles();
   const {error}=await sb.rpc(action==='open'?'availability_session_open_v3':'availability_session_close_v3',args);
   if(error)throw error;
   await fetchAvailabilitySession(kind);await loadAvailabilityStaff(kind);await loadPollResults();await loadCanyonPollResults();
@@ -2115,7 +2118,8 @@ async function loadCanyonPollResults(){
   const {data,error}=await sb.from('canyon_poll').select('participant_id,response');
   if(error){console.warn('Canyon poll:',error);return;}
   canyonPollResults=Object.fromEntries((data||[]).map(v=>[v.participant_id,v.response]));
-  syncCanyonRolesFromPoll();
+  if(availabilityState.canyon)syncCanyonRolesFromPoll();
+  else await restoreCanyonClosedRoles();
   updateCanyonPollCounts();renderCanyonPollStaff();renderCanyonPlayers();renderCanyonTeams();
 }
 function updateCanyonPollCounts(){
@@ -4568,6 +4572,24 @@ const CANYON_SUBS_PER_TEAM = 10;
 let canyonRoles   = {};   // {playerId: 'starter'|'sub'|'none'}
 // Les votes du sondage alimentent directement la présélection Canyon.
 // Ne modifie jamais les équipes déjà équilibrées (canyonTeams).
+// Sauvegarde de la présélection au moment de la clôture, partagée entre appareils.
+async function saveCanyonClosedRoles(){
+  if(!sb)return;
+  const {error}=await sb.from('app_config').upsert({key:'canyon_closed_roles',value:{roles:{...canyonRoles},saved_at:new Date().toISOString()}},{onConflict:'key'});
+  if(error)throw error;
+}
+async function restoreCanyonClosedRoles(){
+  if(!sb||availabilityState.canyon)return;
+  const {data,error}=await sb.from('app_config').select('value').eq('key','canyon_closed_roles').maybeSingle();
+  if(error){console.warn('Présélection Canyon:',error);return;}
+  if(data?.value?.roles && typeof data.value.roles==='object'){
+    canyonRoles={...data.value.roles};
+  }else if(!Object.keys(canyonRoles).length){
+    // Compatibilité : ancienne session clôturée avant la mise en place de la sauvegarde.
+    for(const [id,response] of Object.entries(canyonPollResults))
+      canyonRoles[id]=response==='present'?'starter':response==='remplacant'?'sub':'none';
+  }
+}
 function syncCanyonRolesFromPoll(){
   // Une fois la session clôturée, préserver les choix manuels du staff.
   if(!availabilityState.canyon)return;
