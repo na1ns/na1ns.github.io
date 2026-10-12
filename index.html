@@ -264,7 +264,7 @@ body.light .pres-qbtn{background:linear-gradient(145deg,var(--surface),var(--sur
 .power-disp{font-family:var(--font-mono);font-size:11px;color:var(--cyan);padding:3px 8px;border-radius:6px;border:1px solid transparent;cursor:text;white-space:nowrap;transition:all var(--transition);font-weight:600}
 .power-disp:hover{background:rgba(121,232,255,0.06);border-color:rgba(121,232,255,0.2)}
 .power-disp.empty-val{color:var(--text4);font-style:italic;font-weight:400}
-.power-inp{font-family:var(--font-mono);font-size:11px;color:var(--cyan);width:80px;padding:3px 8px;border-radius:6px;border:1px solid rgba(121,232,255,0.3);background:rgba(121,232,255,0.05);outline:none;display:none}
+.power-inp + .power-unit{display:none;color:var(--cyan);font-size:11px;font-weight:700;margin-left:3px}.power-inp:not([style*="display: none"]):not([style*="display:none"])+.power-unit{display:inline}.power-inp{font-family:var(--font-mono);font-size:11px;color:var(--cyan);width:80px;padding:3px 8px;border-radius:6px;border:1px solid rgba(121,232,255,0.3);background:rgba(121,232,255,0.05);outline:none;display:none}
 .elig-btn{font-size:10px;padding:3px 10px;border-radius:99px;border:1px solid currentColor;cursor:default;white-space:nowrap;font-weight:700}
 .elig-btn.yes{background:rgba(80,232,152,0.08);color:var(--green);border-color:rgba(80,232,152,0.2)}
 .elig-btn.no{background:rgba(255,107,107,0.08);color:var(--red);border-color:rgba(255,107,107,0.2)}
@@ -4842,22 +4842,47 @@ function onDragOver(e,idx){e.preventDefault();document.querySelectorAll('.p-row'
 function onDrop(e,idx){e.preventDefault();if(dragSrcIdx===null||dragSrcIdx===idx)return;const moved=participants.splice(dragSrcIdx,1)[0];participants.splice(idx,0,moved);dragSrcIdx=null;render();reorder(participants.map(p=>p.id));}
 function onDragEnd(){dragSrcIdx=null;document.querySelectorAll('.p-row').forEach(r=>{r.classList.remove('dragging');r.classList.remove('drag-over');});}
 
-function startEdit(idx){const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;row.querySelector('.name-disp').style.display='none';const inp=row.querySelector('.name-inp');inp.style.display='block';inp.value=participants[idx].name;inp.focus();inp.select();}
+function startEdit(idx){const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;row.querySelector('.name-disp').style.display='none';const inp=row.querySelector('.name-inp');inp.style.display='inline-block';inp.value=participants[idx].name;inp.focus();inp.select();}
 function commitEdit(idx){const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;renameName(participants[idx].id,participants[idx].name,row.querySelector('.name-inp').value);}
-function startEditPower(idx){if(!isAdminOrStaff())return;const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;row.querySelector('.power-disp').style.display='none';const inp=row.querySelector('.power-inp');inp.style.display='block';inp.value=participants[idx].power_t1?t1FormatPower(participants[idx].power_t1):'';inp.focus();inp.select();}
+function startEditPower(idx){if(!isAdminOrStaff())return;const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;row.querySelector('.power-disp').style.display='none';const inp=row.querySelector('.power-inp');inp.style.display='block';inp.value=participants[idx].power_t1?(Number(participants[idx].power_t1)/1e6).toFixed(2):'';inp.focus();inp.select();}
 async function commitPower(idx){
   if(!isAdminOrStaff())return;
-  const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;
-  const raw=row.querySelector('.power-inp').value.trim();
-  const val=raw?t1ParsePower(raw):null;
-  if(raw&&val===null){alert('Puissance invalide. Exemple : 51.00M ou 51000000.');render();return;}
+  const row=document.querySelector(`[data-idx="${idx}"]`);
+  const input=row?.querySelector('.power-inp');
   const p=participants[idx];
-  if(val===p.power_t1){render();return;}
+  if(!input||!p)return;
+  const raw=input.value.trim();
+  const val=raw?t1ParsePower(/[a-z]/i.test(raw)?raw:raw+'M'):null;
+  if(raw&&val===null){alert('Puissance invalide : indique par exemple 51.00 (en millions).');input.focus();return;}
+  if(val===null){alert('Indique une puissance en millions, par exemple 51.00.');input.focus();return;}
+  if(Number(p.power_t1)===val){render();return;}
+  if(!sb){alert('Connexion Supabase indisponible.');return;}
+  input.disabled=true;
   setBusy(true);
-  const {error}=await sb.from('participants').update({power_t1:val}).eq('id',p.id);
-  setBusy(false);
-  if(error){alert('Impossible de sauvegarder la puissance : '+error.message);render();return;}
-  p.power_t1=val;render();toast('⚡ Puissance enregistrée');
+  try{
+    const {data,error}=await sb.from('participants').update({power_t1:val}).eq('id',p.id).select('id,power_t1').maybeSingle();
+    if(error)throw error;
+    if(!data)throw new Error('La base n’a modifié aucune ligne (autorisations RLS possibles).');
+    const saved=Number(data.power_t1);
+    if(!Number.isFinite(saved)||Math.abs(saved-val)>0.5){
+      throw new Error('Supabase a retourné '+String(data.power_t1)+' au lieu de '+val+'. Vérifie le type de la colonne power_t1 et les déclencheurs SQL.');
+    }
+    // Relire la valeur stockée pour ne jamais annoncer une réussite sur une valeur restée à zéro.
+    const {data:verified,error:readError}=await sb.from('participants').select('power_t1').eq('id',p.id).maybeSingle();
+    if(readError)throw readError;
+    if(!verified||Math.abs(Number(verified.power_t1)-val)>0.5){
+      throw new Error('La vérification après enregistrement a échoué : valeur en base = '+String(verified?.power_t1));
+    }
+    p.power_t1=Number(verified.power_t1);
+    render();
+    if(typeof renderStats==='function')renderStats();
+    toast('⚡ Puissance enregistrée : '+t1FormatPower(p.power_t1));
+  }catch(err){
+    console.error('Erreur correction puissance participant',err);
+    alert('Impossible d’enregistrer la puissance de '+p.name+' : '+(err?.message||err));
+    input.disabled=false;
+    input.focus();
+  }finally{setBusy(false);}
 }
 
 function toggleSection(bodyId,toggleId){
@@ -4905,8 +4930,8 @@ function render(){
         return `<div class="p-row${absCls}${eligCls}" data-idx="${realIdx}" style="grid-template-columns:${cols}" draggable="${searchFilter?'false':'true'}" ondragstart="onDragStart(event,${realIdx})" ondragover="onDragOver(event,${realIdx})" ondrop="onDrop(event,${realIdx})" ondragend="onDragEnd()">
           ${showPres?`<div style="display:flex;align-items:center;justify-content:center"><input type="checkbox" class="cb-pres" ${isPresent?'checked':''} onchange="togglePresent(${p.id})" ondragstart="event.stopPropagation()"/></div>`:''}
           <span class="player-num">${participants.indexOf(p)+1}</span>
-          <div class="name-cell"><span class="name-disp" onclick="startEdit(${realIdx})">${nameHtml}</span><input class="name-inp" ondragstart="event.stopPropagation()" onblur="commitEdit(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
-          <div class="power-cell"><span class="power-disp${!p.power_t1?' empty-val':''}" onclick="startEditPower(${realIdx})" title="${isAdminOrStaff()?'Cliquer pour corriger la puissance':'Puissance T1'}" style="${isAdminOrStaff()?'cursor:pointer':'cursor:default'}">${p.power_t1?t1FormatPower(p.power_t1):'—'}${isAdminOrStaff()?' ✏️':''}</span><input class="power-inp" type="text" ondragstart="event.stopPropagation()" onblur="commitPower(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
+          <div class="name-cell"><span class="name-disp" onclick="startEdit(${realIdx})">${nameHtml}</span><input class="name-inp" ondragstart="event.stopPropagation()" onblur="commitEdit(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/><span class="power-unit">M</span></div>
+          <div class="power-cell"><span class="power-disp${!p.power_t1?' empty-val':''}" onclick="startEditPower(${realIdx})" title="${isAdminOrStaff()?'Cliquer pour corriger la puissance':'Puissance T1'}" style="${isAdminOrStaff()?'cursor:pointer':'cursor:default'}">${p.power_t1?t1FormatPower(p.power_t1):'—'}${isAdminOrStaff()?' ✏️':''}</span><input class="power-inp" type="text" inputmode="decimal" placeholder="51.00" title="Puissance en millions (M)" ondragstart="event.stopPropagation()" onblur="commitPower(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
           <div style="display:contents">${coffresBtns}</div>
           <div style="display:flex;align-items:center;justify-content:center;gap:4px"><span class="elig-btn ${elig?'yes':'no'}">${elig?'✓':'✗'}</span><button class="del-btn" onclick="removeName(${p.id})">×</button></div>
           ${isAdmin()?`<div style="display:flex;align-items:center;justify-content:center"><input type="checkbox" title="Priorité staff ⭐" ${p.is_priority?'checked':''} onchange="togglePriority(${p.id},this)" ondragstart="event.stopPropagation()" style="width:15px;height:15px;accent-color:var(--amber);cursor:pointer"/></div>`:''}
