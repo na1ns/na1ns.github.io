@@ -982,7 +982,7 @@ body.light .poll-page{box-shadow:0 15px 45px rgba(0,0,0,.16)!important}
           <button class="btn btn-primary" id="addBtn" onclick="addName()">Ajouter</button>
         </div>
         <div class="edit-hint">
-          ✏️ Nom modifiable · ⠿ Glisser pour réordonner · Cases vertes ✓ = fait · −/+ = ajuster compteurs
+          ✏️ Nom et puissance modifiables (cliquer sur la valeur ⚡) · ⠿ Glisser pour réordonner · Cases vertes ✓ = fait · −/+ = ajuster compteurs
         </div>
         <div class="search-row">
           <div class="search-wrap">
@@ -3659,9 +3659,9 @@ function renderStats(){
     {val:participants.length,lbl:'Joueurs'},{val:totalDraws,lbl:'Tirages'},
     {val:eligCount,lbl:'Éligibles 🏆'},
     {val:totalWeeksArchived||'—',lbl:'Semaines archivées'},
-    {val:avgPower?avgPower.toLocaleString('fr-FR'):'—',lbl:'Puissance moy.'},
-    {val:medianPower?medianPower.toLocaleString('fr-FR'):'—',lbl:'Puissance médiane'},
-    {val:totalPower?totalPower.toLocaleString('fr-FR'):'—',lbl:'Puissance totale'},
+    {val:avgPower?(avgPower/1e6).toFixed(2)+'M':'—',lbl:'Puissance moy.'},
+    {val:medianPower?(medianPower/1e6).toFixed(2)+'M':'—',lbl:'Puissance médiane'},
+    {val:totalPower?(totalPower>=1e9?(totalPower/1e9).toFixed(2)+'G':(totalPower/1e6).toFixed(2)+'M'):'—',lbl:'Puissance totale'},
     {val:avgRate!==null?avgRate+'%':'—',lbl:'Taux valid. moy.'},
   ].map(({val,lbl})=>`<div class="stats-global-card"><div class="stats-global-val">${val}</div><div class="stats-global-lbl">${lbl}</div></div>`).join('');
   renderStatsPodium();
@@ -4844,15 +4844,20 @@ function onDragEnd(){dragSrcIdx=null;document.querySelectorAll('.p-row').forEach
 
 function startEdit(idx){const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;row.querySelector('.name-disp').style.display='none';const inp=row.querySelector('.name-inp');inp.style.display='block';inp.value=participants[idx].name;inp.focus();inp.select();}
 function commitEdit(idx){const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;renameName(participants[idx].id,participants[idx].name,row.querySelector('.name-inp').value);}
-function startEditPower(idx){const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;row.querySelector('.power-disp').style.display='none';const inp=row.querySelector('.power-inp');inp.style.display='block';inp.value=participants[idx].power_t1?t1FormatPower(participants[idx].power_t1):'';inp.focus();inp.select();}
+function startEditPower(idx){if(!isAdminOrStaff())return;const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;row.querySelector('.power-disp').style.display='none';const inp=row.querySelector('.power-inp');inp.style.display='block';inp.value=participants[idx].power_t1?t1FormatPower(participants[idx].power_t1):'';inp.focus();inp.select();}
 async function commitPower(idx){
+  if(!isAdminOrStaff())return;
   const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;
   const raw=row.querySelector('.power-inp').value.trim();
   const val=raw?t1ParsePower(raw):null;
   if(raw&&val===null){alert('Puissance invalide. Exemple : 51.00M ou 51000000.');render();return;}
   const p=participants[idx];
   if(val===p.power_t1){render();return;}
-  setBusy(true);await sb.from('participants').update({power_t1:val}).eq('id',p.id);setBusy(false);
+  setBusy(true);
+  const {error}=await sb.from('participants').update({power_t1:val}).eq('id',p.id);
+  setBusy(false);
+  if(error){alert('Impossible de sauvegarder la puissance : '+error.message);render();return;}
+  p.power_t1=val;render();toast('⚡ Puissance enregistrée');
 }
 
 function toggleSection(bodyId,toggleId){
@@ -4901,7 +4906,7 @@ function render(){
           ${showPres?`<div style="display:flex;align-items:center;justify-content:center"><input type="checkbox" class="cb-pres" ${isPresent?'checked':''} onchange="togglePresent(${p.id})" ondragstart="event.stopPropagation()"/></div>`:''}
           <span class="player-num">${participants.indexOf(p)+1}</span>
           <div class="name-cell"><span class="name-disp" onclick="startEdit(${realIdx})">${nameHtml}</span><input class="name-inp" ondragstart="event.stopPropagation()" onblur="commitEdit(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
-          <div class="power-cell"><span class="power-disp${!p.power_t1?' empty-val':''}" onclick="startEditPower(${realIdx})">${p.power_t1?t1FormatPower(p.power_t1):'—'}</span><input class="power-inp" type="text" ondragstart="event.stopPropagation()" onblur="commitPower(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
+          <div class="power-cell"><span class="power-disp${!p.power_t1?' empty-val':''}" onclick="startEditPower(${realIdx})" title="${isAdminOrStaff()?'Cliquer pour corriger la puissance':'Puissance T1'}" style="${isAdminOrStaff()?'cursor:pointer':'cursor:default'}">${p.power_t1?t1FormatPower(p.power_t1):'—'}${isAdminOrStaff()?' ✏️':''}</span><input class="power-inp" type="text" ondragstart="event.stopPropagation()" onblur="commitPower(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
           <div style="display:contents">${coffresBtns}</div>
           <div style="display:flex;align-items:center;justify-content:center;gap:4px"><span class="elig-btn ${elig?'yes':'no'}">${elig?'✓':'✗'}</span><button class="del-btn" onclick="removeName(${p.id})">×</button></div>
           ${isAdmin()?`<div style="display:flex;align-items:center;justify-content:center"><input type="checkbox" title="Priorité staff ⭐" ${p.is_priority?'checked':''} onchange="togglePriority(${p.id},this)" ondragstart="event.stopPropagation()" style="width:15px;height:15px;accent-color:var(--amber);cursor:pointer"/></div>`:''}
@@ -5726,6 +5731,14 @@ function t1ParsePower(raw){
   return Number.isSafeInteger(Math.round(n))&&n>0&&n<=1e12?Math.round(n):null;
 }
 function t1FormatPower(n){return (Number(n)/1e6).toFixed(2)+'M';}
+function t1PowerChanged(){
+  const input=document.getElementById('t1Power');
+  const btn=document.getElementById('t1SubmitBtn');
+  const file=document.getElementById('t1Image').files[0];
+  const valid=!!t1ParsePower(input.value);
+  if(btn)btn.disabled=t1Busy||!file||!valid;
+  input.setAttribute('aria-invalid',input.value&&!valid?'true':'false');
+}
 function t1ImageChanged(){
   const file=document.getElementById('t1Image').files[0];const img=document.getElementById('t1Preview');
   if(!file){img.style.display='none';document.getElementById('t1Power').value='';document.getElementById('t1SubmitBtn').disabled=true;t1Status('');return;}
@@ -5811,14 +5824,15 @@ async function t1Recognize(selectedFile){
     }
     const value=t1ParsePower(unique[0]);
     if(input.files[0]!==file)return; // Ignorer une ancienne lecture si une autre capture a été choisie.
-    document.getElementById('t1Power').value=unique[0];
+    document.getElementById('t1Power').value=t1FormatPower(value);
+    t1PowerChanged();
     status('Puissance détectée : '+t1FormatPower(value)+'. Vérifie avant de valider.');
   }catch(e){
     console.error('Lecture T1 :',e);
     if(input.files[0]!==file)return;
-    status((e && e.message?e.message:'Erreur lors de la lecture.')+' Essaie une autre capture plus nette.',true);
+    status((e && e.message?e.message:'Erreur lors de la lecture.')+' Tu peux saisir la puissance dans la case, en conservant la capture.',true);
   }finally{
-    if(input.files[0]===file && submitBtn)submitBtn.disabled=!t1ParsePower(document.getElementById('t1Power').value);
+    if(input.files[0]===file)t1PowerChanged();
   }
 }
 async function t1Submit(){
@@ -5827,7 +5841,7 @@ async function t1Submit(){
   const p=t1Players.find(x=>x.id===id),power=t1ParsePower(document.getElementById('t1Power').value);
   if(!t1CurrentRound){t1Status('Aucun recensement T1 ouvert.',true);return;}
   if(!p){t1Status('Sélectionne ton pseudo.',true);return;}
-  if(!power){t1Status('La puissance n’a pas été reconnue. Ajoute une capture plus nette.',true);return;}
+  if(!power){t1Status('Vérifie la puissance : indique par exemple 51.00M.',true);return;}
   const file=document.getElementById('t1Image').files[0];
   if(!file){t1Status('Ajoute une capture d’écran pour déclarer ta puissance.',true);return;}
   if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>5*1024*1024){t1Status('Capture invalide (5 Mo max).',true);return;}
@@ -5975,7 +5989,7 @@ function copyT1Link(){
 
 
 <!-- ══ SONDAGE PUISSANCE T1 ══ -->
-<div id="t1PollOverlay">
+<div id="t1PollOverlay"><div class="poll-language" style="display:flex;justify-content:flex-end;gap:6px;padding:10px 14px 0"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button></div>
   <div class="poll-page">
     <div class="poll-logo">⚡</div><div class="poll-guild">Les Nains de Mithril</div>
     <div class="poll-title">Recensement Puissance T1</div><div class="poll-subtitle">Pour déclarer ta puissance T1, ajoute une capture d’écran de ton équipe. La puissance sera reconnue automatiquement. Une seule déclaration par joueur et par recensement.</div><div id="t1RoundLabel" class="t1-help">Chargement du recensement…</div>
@@ -5994,8 +6008,10 @@ function copyT1Link(){
         <input id="t1Image" type="file" accept="image/png,image/jpeg,image/webp" onchange="t1ImageChanged()">
         <img id="t1Preview" alt="Aperçu de la capture" style="display:none">
       </label>
-      <p class="t1-help">Le site lit automatiquement la puissance sur ta capture. Vérifie le résultat affiché avant de valider. Si la lecture échoue, essaie une autre capture plus nette.</p>
-      <input id="t1Power" type="hidden" value="">
+      <p class="t1-help">Le site remplit automatiquement la puissance détectée. Vérifie-la et corrige-la si nécessaire avant de valider. La capture reste obligatoire.</p>
+      <label for="t1Power" class="poll-step-label" style="display:block;margin-top:16px">⚡ Puissance T1 détectée (modifiable)</label>
+      <input id="t1Power" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Exemple : 51.00M" maxlength="18" oninput="t1PowerChanged()" style="width:100%;box-sizing:border-box;margin:8px 0 12px;padding:13px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:18px;font-weight:700" aria-describedby="t1PowerHint">
+      <p id="t1PowerHint" class="t1-help" style="margin-top:0">Valeur remplie après lecture de la capture. Tu peux la corriger manuellement (ex. 51.00M).</p>
       <button id="t1SubmitBtn" class="btn btn-primary t1-action" disabled onclick="t1Submit()">✓ Valider ma puissance T1</button>
       <div id="t1Status" class="t1-status" aria-live="polite"></div>
     </div>
@@ -6046,7 +6062,7 @@ function copyT1Link(){
     </div>
   </div>
 </div>
-<div id="canyonPollOverlay" style="display:none">
+<div id="canyonPollOverlay" style="display:none"><div class="poll-language" style="display:flex;justify-content:flex-end;gap:6px;padding:10px 14px 0"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button></div>
   <div class="poll-page">
     <div class="poll-logo">🏜️</div><div class="poll-guild">Les Nains de Mithril</div>
     <div class="poll-title">Bataille du Canyon</div>
@@ -6074,7 +6090,7 @@ function copyT1Link(){
   </div>
 </div>
 <!-- ══ POLL TDD ══ -->
-<div id="pollOverlay" style="display:none">
+<div id="pollOverlay" style="display:none"><div class="poll-language" style="display:flex;justify-content:flex-end;gap:6px;padding:10px 14px 0"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button></div>
   <div class="poll-page">
     <div class="poll-logo">⚔️</div>
     <div class="poll-guild">Les Nains de Mithril</div>
@@ -6176,5 +6192,122 @@ function copyT1Link(){
     </div>
   </div>
 </div>
+<style>
+.poll-language button{background:var(--surface2);color:var(--text2);border:1px solid var(--border2);border-radius:8px;padding:8px 11px;font:600 12px 'DM Sans',sans-serif;cursor:pointer}
+.poll-language button.active{border-color:var(--blue);color:var(--text);background:var(--blue-l)}
+</style>
+<script>
+// Traduction locale des trois pages publiques. Les pseudos et les valeurs de puissance ne sont pas traduits.
+let pollLanguage=localStorage.getItem('alliance_poll_language')==='en'?'en':'fr';
+const pollTranslations={
+'Recensement Puissance T1':'T1 Power Survey',
+'Pour déclarer ta puissance T1, ajoute une capture d’écran de ton équipe. La puissance sera reconnue automatiquement. Une seule déclaration par joueur et par recensement.':'To report your T1 power, upload a screenshot of your team. Power will be detected automatically. One submission per player per survey.',
+'Chargement du recensement…':'Loading survey…',
+'Aucun recensement ouvert. Reviens à la prochaine session.':'No survey is currently open. Please come back for the next session.',
+'Ton pseudo':'Your player name','Chargement…':'Loading…','Exemple de capture attendue':'Example screenshot',
+'Prends une capture de l’écran de formation de ton équipe T1, avec ':'Take a screenshot of your T1 team formation screen, with ',
+'la puissance totale bien visible en haut':'the total power clearly visible at the top',
+' (ici : ':' (here: ','). Voici un exemple :':'). Here is an example:',
+'L’image sert uniquement d’exemple : ajoute ta propre capture pour déclarer ta puissance.':'This image is only an example. Upload your own screenshot to report your power.',
+'Ajouter une capture d’écran':'Upload a screenshot',
+'📷 Choisir une capture de ton équipe T1 (JPG / PNG / WEBP, max 5 Mo)':'📷 Choose a screenshot of your T1 team (JPG / PNG / WEBP, max 5 MB)',
+'Le site remplit automatiquement la puissance détectée. Vérifie-la et corrige-la si nécessaire avant de valider. La capture reste obligatoire.':'Detected power is filled in automatically. Check and correct it if needed before submitting. A screenshot is still required.',
+'⚡ Puissance T1 détectée (modifiable)':'⚡ Detected T1 power (editable)',
+'Valeur remplie après lecture de la capture. Tu peux la corriger manuellement (ex. 51.00M).':'Filled in after scanning the screenshot. You can edit it manually (e.g. 51.00M).',
+'✓ Valider ma puissance T1':'✓ Submit my T1 power',
+'Puissance enregistrée !':'Power saved!',
+'Ta déclaration est verrouillée. Contacte le staff pour toute correction.':'Your submission is locked. Contact the staff if a correction is needed.',
+'Bataille du Canyon':'Canyon Battle','Tempête du Désert':'Desert Storm',
+'Indique ta disponibilité. Un seul vote par joueur.':'Indicate your availability. One vote per player.',
+'Indique ta disponibilité pour l’événement. Un seul vote par joueur.':'Indicate your availability for the event. One vote per player.',
+'Chargement de la session…':'Loading session…',
+'Qui es-tu ?':'Who are you?','Sélectionne ton pseudo dans la liste':'Select your player name from the list',
+'Ta disponibilité ?':'Your availability?',
+'Présent':'Available','Remplaçant':'Substitute','Absent':'Unavailable',
+'Disponible comme titulaire':'Available as a main player','Disponible si besoin':'Available if needed',
+'Indisponible':'Not available','Je serai là — rôle titulaire':'I will attend — main player',
+'Je ne serai pas là':'I will not attend',
+'← Changer de pseudo':'← Change player name','← Changer de nom':'← Change name',
+'Ta réponse est verrouillée. Contacte le staff pour une correction.':'Your response is locked. Contact the staff to request a correction.',
+'Exemple : 51.00M':'Example: 51.00M','Recherche ton nom…':'Search your name…',
+'Exemple de capture d’écran Last War attendue : écran de formation avec la puissance totale 23.22M visible en haut':'Example Last War screenshot: formation screen with total power 23.22M at the top',
+'Aperçu de la capture':'Screenshot preview',
+'Aucun sondage ouvert.':'No survey is currently open.',
+'Ce sondage est clôturé.':'This survey is closed.',
+'La session est clôturée.':'This session is closed.',
+'Choisis une capture d’écran.':'Choose a screenshot.',
+'Chargement de la reconnaissance… La première utilisation peut prendre 20 à 40 secondes.':'Loading text recognition… The first use may take 20–40 seconds.',
+'Préparation de la capture…':'Preparing screenshot…',
+'Puissance détectée : ':'Detected power: ',
+'. Vérifie avant de valider.':'. Check before submitting.',
+'Tu peux saisir la puissance dans la case, en conservant la capture.':'You can enter your power in the field while keeping the screenshot.',
+'Image JPG, PNG ou WEBP de 5 Mo maximum.':'JPG, PNG or WEBP image, maximum 5 MB.',
+};
+const pollOriginalText=new WeakMap(),pollOriginalAttrs=new WeakMap();
+const pollRoots=()=>['t1PollOverlay','canyonPollOverlay','pollOverlay'].map(id=>document.getElementById(id)).filter(Boolean);
+function translatePollString(source){
+ if(pollLanguage==='fr')return source;
+ const trimmed=source.trim();if(!trimmed)return source;
+ let result=pollTranslations[trimmed];
+ if(result===undefined){
+   result=trimmed;
+   const dynamic=[
+    [/^Puissance détectée : (.+)\. Vérifie avant de valider\.$/,'Detected power: $1. Check before submitting.'],
+    [/^Recensement (.+) ouvert$/,'Survey $1 is open'],
+    [/^Sondage clôturé/i,'Survey closed'],
+    [/^Sondage ouvert/i,'Survey open'],
+    [/^Merci pour ta réponse/i,'Thank you for your response'],
+    [/^Ta réponse a été enregistrée/i,'Your response has been saved'],
+    [/^Puissance (.+) enregistrée/i,'Power $1 saved'],
+   ];
+   for(const [pattern,replacement] of dynamic){if(pattern.test(result)){result=result.replace(pattern,replacement);break;}}
+ }
+ return source.replace(trimmed,result);
+}
+function applyPollTranslations(){
+ for(const root of pollRoots()){
+  const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let node;
+  while((node=walker.nextNode())){
+   if(node.parentElement?.closest('.poll-language,script,style,option[value]:not([value=""])'))continue;
+   if(!pollOriginalText.has(node))pollOriginalText.set(node,node.nodeValue);
+   const original=pollOriginalText.get(node),translated=translatePollString(original);
+   if(node.nodeValue!==translated)node.nodeValue=translated;
+  }
+  root.querySelectorAll('[placeholder],[alt]').forEach(el=>{
+   if(!pollOriginalAttrs.has(el))pollOriginalAttrs.set(el,{});
+   const originals=pollOriginalAttrs.get(el);
+   for(const attr of ['placeholder','alt'])if(el.hasAttribute(attr)){
+    if(!(attr in originals))originals[attr]=el.getAttribute(attr);
+    const translated=translatePollString(originals[attr]);if(el.getAttribute(attr)!==translated)el.setAttribute(attr,translated);
+   }
+  });
+ }
+ document.querySelectorAll('.poll-language button').forEach(button=>{
+  button.classList.toggle('active',button.classList.contains('lang-'+pollLanguage));
+  button.setAttribute('aria-pressed',String(button.classList.contains('active')));
+ });
+ document.documentElement.lang=pollLanguage;
+}
+function setPollLanguage(lang){pollLanguage=lang==='en'?'en':'fr';localStorage.setItem('alliance_poll_language',pollLanguage);applyPollTranslations();}
+window.addEventListener('DOMContentLoaded',()=>{
+ applyPollTranslations();
+ // Les réponses sont injectées dynamiquement par le code des sondages.
+ const observer=new MutationObserver(records=>{
+  let changed=false;
+  for(const rec of records){
+   if(rec.type==='characterData'){
+    const node=rec.target;
+    if(node.parentElement?.closest('.poll-language'))continue;
+    const previous=pollOriginalText.get(node);
+    if(previous===undefined||node.nodeValue!==translatePollString(previous)){
+     pollOriginalText.set(node,node.nodeValue);changed=true;
+    }
+   }else if(rec.type==='childList'&&rec.addedNodes.length)changed=true;
+  }
+  if(changed)applyPollTranslations();
+ });
+ pollRoots().forEach(root=>observer.observe(root,{subtree:true,childList:true,characterData:true}));
+});
+</script>
 </body>
 </html>
