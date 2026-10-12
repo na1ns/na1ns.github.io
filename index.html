@@ -4600,10 +4600,6 @@ function updateCanyonSelectionSummary(){
 
 
 // Réponses de disponibilité uniquement : aucun changement automatique des équipes.
-function availabilityBadge(response){
-  const labels={present:'✅ Sondage : Présent',remplacant:'🔄 Sondage : Remplaçant',absent:'❌ Sondage : Absent'};
-  return response && labels[response] ? '<span class="ev-poll-badge '+response+'">'+labels[response]+'</span>' : '<span class="ev-poll-badge" style="opacity:.55">Sondage : sans réponse</span>';
-}
 
 function renderCanyonPlayers(){
   const list=document.getElementById('canyonPlayersList');
@@ -4621,7 +4617,7 @@ function renderCanyonPlayers(){
     const rowCls=role==='starter'?'role-starter':role==='sub'?'role-sub':'';
     const nameHl=searchLow ? p.name.replace(new RegExp('('+search.replace(/[.*+?^${}()|[\\]\\]/g,'\\$&')+')','gi'),'<mark style="background:rgba(255,184,77,0.2);color:var(--amber);border-radius:2px;padding:0 2px">$1</mark>') : p.name;
     return '<div class="ev-player-row canyon-player-row '+rowCls+'">'+
-      '<span class="canyon-player-name">'+nameHl+availabilityBadge(canyonPollResults[p.id])+'</span>'+
+      '<span class="canyon-player-name">'+nameHl+'</span>'+
       '<div class="ev-role-btns">'+
         (addMode ?
           '<button class="ev-role-btn" onclick="setCanyonRole('+p.id+',\'starter\');canyonClearSearch()">+ Titulaire</button>'+
@@ -4756,7 +4752,7 @@ function renderCanyonTeams(){
       <div class="${titleCls}">${title} <span>(${players.length})</span></div>
       ${players.map((p,i)=>`<div class="ev-team-player">
         <span class="ev-pnum">${i+1}</span>
-        <span class="ev-pname">${p.name}${availabilityBadge(canyonPollResults[p.id])}</span>
+        <span class="ev-pname">${p.name}</span>
       </div>`).join('')}
     </div>`;
   };
@@ -4930,7 +4926,7 @@ function render(){
         return `<div class="p-row${absCls}${eligCls}" data-idx="${realIdx}" style="grid-template-columns:${cols}" draggable="${searchFilter?'false':'true'}" ondragstart="onDragStart(event,${realIdx})" ondragover="onDragOver(event,${realIdx})" ondrop="onDrop(event,${realIdx})" ondragend="onDragEnd()">
           ${showPres?`<div style="display:flex;align-items:center;justify-content:center"><input type="checkbox" class="cb-pres" ${isPresent?'checked':''} onchange="togglePresent(${p.id})" ondragstart="event.stopPropagation()"/></div>`:''}
           <span class="player-num">${participants.indexOf(p)+1}</span>
-          <div class="name-cell"><span class="name-disp" onclick="startEdit(${realIdx})">${nameHtml}</span><input class="name-inp" ondragstart="event.stopPropagation()" onblur="commitEdit(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/><span class="power-unit">M</span></div>
+          <div class="name-cell"><span class="name-disp" onclick="startEdit(${realIdx})">${nameHtml}</span><input class="name-inp" ondragstart="event.stopPropagation()" onblur="commitEdit(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
           <div class="power-cell"><span class="power-disp${!p.power_t1?' empty-val':''}" onclick="startEditPower(${realIdx})" title="${isAdminOrStaff()?'Cliquer pour corriger la puissance':'Puissance T1'}" style="${isAdminOrStaff()?'cursor:pointer':'cursor:default'}">${p.power_t1?t1FormatPower(p.power_t1):'—'}${isAdminOrStaff()?' ✏️':''}</span><input class="power-inp" type="text" inputmode="decimal" placeholder="51.00" title="Puissance en millions (M)" ondragstart="event.stopPropagation()" onblur="commitPower(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
           <div style="display:contents">${coffresBtns}</div>
           <div style="display:flex;align-items:center;justify-content:center;gap:4px"><span class="elig-btn ${elig?'yes':'no'}">${elig?'✓':'✗'}</span><button class="del-btn" onclick="removeName(${p.id})">×</button></div>
@@ -5219,11 +5215,9 @@ function renderEventPlayers(){
   if(csubEl)csubEl.textContent=subs.length+'/'+maxTotalSub+' remplaçant'+(subs.length>1?'s':'');
   const rowHtml=(p,role)=>{
     const rowCls=role==='starter'?'role-starter':'role-sub';
-    const pollResp=pollResults[p.id];
-    const pollBadge=pollResp?`<span class="ev-poll-badge ${pollResp}">${pollResp==='present'?'Sondage: Présent':pollResp==='remplacant'?'Remplaçant':'Absent'}</span>`:''
     return '<div class="ev-player-row '+rowCls+'">'+
       '<span style="font-size:11px;color:var(--text3);min-width:22px;text-align:right">'+(participants.indexOf(p)+1)+'</span>'+
-      '<span style="flex:1;font-weight:700">'+p.name+availabilityBadge(pollResults[p.id])+'</span>'+
+      '<span style="flex:1;font-weight:700">'+p.name+'</span>'+
       '<div class="ev-role-btns">'+
         '<button class="ev-role-btn'+(role==='starter'?' starter':'')+'" onclick="evSetRole('+p.id+',\'starter\')">Titulaire</button>'+
         '<button class="ev-role-btn'+(role==='sub'?' sub':'')+'" onclick="evSetRole('+p.id+',\'sub\')">Remplaçant</button>'+
@@ -5240,7 +5234,7 @@ function renderEventPlayers(){
       const nameHl=p.name.replace(new RegExp('('+evSearch.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi'),'<mark style="background:rgba(255,184,77,0.2);color:var(--amber);border-radius:2px;padding:0 2px">$1</mark>');
       return '<div class="ev-player-row" style="border-left:2px solid var(--border2)">'+
         '<span style="font-size:11px;color:var(--text3);min-width:22px;text-align:right">'+(participants.indexOf(p)+1)+'</span>'+
-        '<span style="flex:1;font-weight:700">'+nameHl+availabilityBadge(pollResults[p.id])+'</span>'+
+        '<span style="flex:1;font-weight:700">'+nameHl+'</span>'+
         '<div class="ev-role-btns">'+
           '<button class="ev-role-btn" onclick="evSetRole('+p.id+',\'starter\');evClearSearch()">+ Titulaire</button>'+
           '<button class="ev-role-btn" onclick="evSetRole('+p.id+',\'sub\');evClearSearch()">+ Remplaçant</button>'+
@@ -5638,7 +5632,7 @@ function renderEventTeams(){
         const replaceBtn=`<button onclick="openTddReplaceMenu(event,'${teamKey}','${cat.key}',${i})" title="Remplacer par un joueur non placé" style="background:rgba(124,159,255,0.07);border:1px solid rgba(124,159,255,0.2);border-radius:6px;cursor:pointer;font-size:11px;padding:2px 7px;color:var(--blue);white-space:nowrap;flex-shrink:0;transition:all .15s">⇄ Remplacer</button>`;
         const roleLetter=evRoles[p.id]==='starter'?'T':evRoles[p.id]==='sub'?'R':'';
         const roleBadge=roleLetter?`<span style="font-size:11px;font-weight:800;color:var(--text2);min-width:14px;text-align:center" title="${roleLetter==='T'?'Titulaire':'Remplaçant'}">${roleLetter}</span>`:'';
-        return `<div class="ev-team-player" data-ev-team="${teamKey}" data-ev-cat="${cat.key}" data-ev-idx="${i}" draggable="true" ondragstart="evDragStart(event,'${teamKey}','${cat.key}',${i})" ondragend="evDragEnd()"><span class="ev-pnum">${i+1}</span>${roleBadge}<span class="ev-pname">${p.name}${availabilityBadge(canyonPollResults[p.id])}</span>${replaceBtn}${switchBtn}<span style="font-size:11px;color:var(--text4);cursor:grab;flex-shrink:0">⠿</span></div>`;
+        return `<div class="ev-team-player" data-ev-team="${teamKey}" data-ev-cat="${cat.key}" data-ev-idx="${i}" draggable="true" ondragstart="evDragStart(event,'${teamKey}','${cat.key}',${i})" ondragend="evDragEnd()"><span class="ev-pnum">${i+1}</span>${roleBadge}<span class="ev-pname">${p.name}</span>${replaceBtn}${switchBtn}<span style="font-size:11px;color:var(--text4);cursor:grab;flex-shrink:0">⠿</span></div>`;
       }).join('');
       const isFull=players.length>=cat.size;const dropZone=`<div class="ev-cat-drop" ondragover="evDropZoneOver(event,'${teamKey}','${cat.key}')" ondragleave="evDropZoneLeave(event)" ondrop="evDropOnCatUniversal(event,'${teamKey}','${cat.key}')" style="min-height:${isEmpty?'38px':'4px'};display:flex;align-items:center;justify-content:center;border-radius:6px;transition:all .15s">${isEmpty?`<span style="font-size:11px;color:var(--text3);font-style:italic">${isFull?'Plein':'Déposer ici'}</span>`:''}</div>`;
       return `<div class="ev-cat-block" style="border-left:2px solid ${cat.color}"><div class="ev-cat-header" style="background:${cat.bg}"><span class="ev-cat-title" style="color:${cat.color}">${cat.label}</span><span class="ev-cat-info">${players.length}/${cat.size}</span></div>${playersHtml}${dropZone}</div>`;
