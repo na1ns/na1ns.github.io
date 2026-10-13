@@ -5025,6 +5025,16 @@ function toggleSection(bodyId,toggleId){
   const body=document.getElementById(bodyId);const toggle=document.getElementById(toggleId);if(!body||!toggle)return;
   const isCollapsed=body.classList.contains('collapsed');
   if(isCollapsed){
+    // À l'ouverture du tirage du train, afficher directement les joueurs tirés pour la semaine.
+    if(bodyId==='tirageBody'){
+      const planning=document.getElementById('planningBody');
+      const planningToggle=document.getElementById('planningToggle');
+      if(planning){
+        planning.classList.remove('collapsed');
+        planning.style.maxHeight='none';
+      }
+      if(planningToggle)planningToggle.classList.remove('collapsed');
+    }
     body.classList.remove('collapsed');body.style.maxHeight='none';
     const h=body.scrollHeight;body.style.maxHeight='0';body.getBoundingClientRect();
     body.style.maxHeight=h+'px';toggle.classList.remove('collapsed');
