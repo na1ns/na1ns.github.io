@@ -4254,6 +4254,7 @@ function renderStatsGraphiques(){
       <div class="lw-stats-chart-display">
         <div id="chartBuilderTitle" class="lw-stats-chart-title"></div><div id="chartBuilderSummary" class="lw-stats-chart-summary"></div>
         <canvas id="chartBuilderCanvas" height="360" style="width:100%;display:block"></canvas>
+        <button type="button" class="btn" style="margin-top:14px" onclick="saveAllianceChartJpeg()">📷 Enregistrer le graphique en JPEG</button>
         <div id="chartBuilderEmpty" style="display:none;text-align:center;padding:60px 20px;color:var(--text3);font-size:13px">Aucune donnée disponible pour cette sélection.</div>
       </div>
     </div>`;
@@ -6144,12 +6145,40 @@ async function loadT1History(){
   let prev=null;xy.forEach((pt,i)=>{if(pt.y!==null){if(prev){const line=document.createElementNS(svgNS,'line');line.setAttribute('x1',prev.x);line.setAttribute('y1',prev.y);line.setAttribute('x2',pt.x);line.setAttribute('y2',pt.y);line.setAttribute('stroke','#7c9fff');line.setAttribute('stroke-width','3');svg.appendChild(line);}const dot=document.createElementNS(svgNS,'circle');dot.setAttribute('cx',pt.x);dot.setAttribute('cy',pt.y);dot.setAttribute('r','5');dot.setAttribute('fill','#7c9fff');svg.appendChild(dot);prev=pt;}else prev=null;
    const label=document.createElementNS(svgNS,'text');label.setAttribute('x',pt.x);label.setAttribute('y','215');label.setAttribute('text-anchor','middle');label.setAttribute('fill','currentColor');label.setAttribute('font-size','11');label.textContent='R'+(i+1);svg.appendChild(label);
   });result.appendChild(svg);
+  const saveBtn=document.createElement('button');saveBtn.type='button';saveBtn.className='btn';saveBtn.style.margin='6px 0 18px';saveBtn.textContent='📷 Enregistrer le graphique T1 en JPEG';
+  saveBtn.onclick=()=>saveT1HistoryJpeg(svg,players.find(x=>Number(x.id)===id)?.name||'joueur');result.appendChild(saveBtn);
   const table=document.createElement('table');table.style.cssText='width:100%;border-collapse:collapse';
   const head=document.createElement('tr');['Recensement','Puissance T1','Évolution'].forEach(t=>{const th=document.createElement('th');th.textContent=t;th.style.padding='9px';head.appendChild(th);});table.appendChild(head);
   let prior=null;vals.forEach(x=>{const tr=document.createElement('tr');const diff=x.power!==null&&prior!==null?x.power-prior:null;[x.round.label,x.power===null?'Non répondu':t1FormatPower(x.power),diff===null?'—':(diff>=0?'+':'')+t1FormatPower(diff)].forEach(t=>{const td=document.createElement('td');td.textContent=t;td.style.cssText='padding:9px;border-top:1px solid var(--border)';tr.appendChild(td);});table.appendChild(tr);if(x.power!==null)prior=x.power;});result.appendChild(table);
  };sel.onchange=render;render();
 }
 
+function downloadAllianceJpeg(canvas,filename){
+  if(!canvas||!canvas.width||!canvas.height){alert('Aucun graphique à enregistrer.');return;}
+  const out=document.createElement('canvas');out.width=canvas.width;out.height=canvas.height;
+  const ctx=out.getContext('2d');ctx.fillStyle='#ffffff';ctx.fillRect(0,0,out.width,out.height);ctx.drawImage(canvas,0,0);
+  out.toBlob(blob=>{if(!blob){alert('Impossible de créer le JPEG.');return;}
+    const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;a.style.display='none';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+  },'image/jpeg',0.94);
+}
+function saveAllianceChartJpeg(){
+  const canvas=document.getElementById('chartBuilderCanvas');
+  if(!canvas||canvas.style.display==='none'||document.getElementById('chartBuilderEmpty')?.style.display!=='none'){
+    alert('Génère d’abord un graphique.');return;
+  }
+  downloadAllianceJpeg(canvas,'NA1N-graphique-puissance-'+new Date().toISOString().slice(0,10)+'.jpg');
+}
+function saveT1HistoryJpeg(svg,player){
+  const copy=svg.cloneNode(true);copy.setAttribute('xmlns','http://www.w3.org/2000/svg');copy.setAttribute('width','1360');copy.setAttribute('height','460');
+  copy.querySelectorAll('[fill="currentColor"]').forEach(n=>n.setAttribute('fill','#26344c'));
+  copy.querySelectorAll('[stroke="currentColor"]').forEach(n=>n.setAttribute('stroke','#8a96a8'));
+  const bg=document.createElementNS('http://www.w3.org/2000/svg','rect');bg.setAttribute('width','680');bg.setAttribute('height','230');bg.setAttribute('fill','#ffffff');copy.insertBefore(bg,copy.firstChild);
+  const blob=new Blob([new XMLSerializer().serializeToString(copy)],{type:'image/svg+xml;charset=utf-8'});
+  const url=URL.createObjectURL(blob),img=new Image();
+  img.onload=()=>{const canvas=document.createElement('canvas');canvas.width=1360;canvas.height=460;canvas.getContext('2d').drawImage(img,0,0,1360,460);URL.revokeObjectURL(url);
+    downloadAllianceJpeg(canvas,'NA1N-evolution-T1-'+String(player).replace(/[^a-z0-9_-]/gi,'_').slice(0,45)+'.jpg');};
+  img.onerror=()=>{URL.revokeObjectURL(url);alert('Impossible de convertir le graphique en JPEG.');};img.src=url;
+}
 function copyT1Link(){
   navigator.clipboard.writeText(t1Url()).then(()=>toast('Lien T1 copié !')).catch(()=>prompt('Copie le lien :',t1Url()));
 }
@@ -6158,7 +6187,7 @@ function copyT1Link(){
 
 
 <!-- ══ SONDAGE PUISSANCE T1 ══ -->
-<div id="t1PollOverlay"><div class="poll-language" style="display:flex;justify-content:flex-end;gap:6px;padding:10px 14px 0"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button><button type="button" class="lang-es" onclick="setPollLanguage('es')">🇪🇸 Español</button></div>
+<div id="t1PollOverlay"><div class="poll-language" role="group" aria-label="Choix de la langue"><span class="poll-language-label">🌐 <span>LANGUE / LANGUAGE</span></span><div class="poll-language-options"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button><button type="button" class="lang-es" onclick="setPollLanguage('es')">🇪🇸 Español</button><button type="button" class="lang-de" onclick="setPollLanguage('de')">🇩🇪 Deutsch</button><button type="button" class="lang-it" onclick="setPollLanguage('it')">🇮🇹 Italiano</button></div></div>
   <div class="poll-page">
     <div class="poll-logo">⚡</div><div class="poll-guild">Les Nains de Mithril</div>
     <div class="poll-title">Recensement Puissance T1</div><div class="poll-subtitle">Pour déclarer ta puissance T1, ajoute une capture d’écran de ton équipe. La puissance sera reconnue automatiquement. Une seule déclaration par joueur et par recensement.</div><div id="t1RoundLabel" class="t1-help">Chargement du recensement…</div>
@@ -6231,7 +6260,7 @@ function copyT1Link(){
     </div>
   </div>
 </div>
-<div id="canyonPollOverlay" style="display:none"><div class="poll-language" style="display:flex;justify-content:flex-end;gap:6px;padding:10px 14px 0"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button><button type="button" class="lang-es" onclick="setPollLanguage('es')">🇪🇸 Español</button></div>
+<div id="canyonPollOverlay" style="display:none"><div class="poll-language" role="group" aria-label="Choix de la langue"><span class="poll-language-label">🌐 <span>LANGUE / LANGUAGE</span></span><div class="poll-language-options"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button><button type="button" class="lang-es" onclick="setPollLanguage('es')">🇪🇸 Español</button><button type="button" class="lang-de" onclick="setPollLanguage('de')">🇩🇪 Deutsch</button><button type="button" class="lang-it" onclick="setPollLanguage('it')">🇮🇹 Italiano</button></div></div>
   <div class="poll-page">
     <div class="poll-logo">🏜️</div><div class="poll-guild">Les Nains de Mithril</div>
     <div class="poll-title">Bataille du Canyon</div>
@@ -6259,7 +6288,7 @@ function copyT1Link(){
   </div>
 </div>
 <!-- ══ POLL TDD ══ -->
-<div id="pollOverlay" style="display:none"><div class="poll-language" style="display:flex;justify-content:flex-end;gap:6px;padding:10px 14px 0"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button><button type="button" class="lang-es" onclick="setPollLanguage('es')">🇪🇸 Español</button></div>
+<div id="pollOverlay" style="display:none"><div class="poll-language" role="group" aria-label="Choix de la langue"><span class="poll-language-label">🌐 <span>LANGUE / LANGUAGE</span></span><div class="poll-language-options"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button><button type="button" class="lang-es" onclick="setPollLanguage('es')">🇪🇸 Español</button><button type="button" class="lang-de" onclick="setPollLanguage('de')">🇩🇪 Deutsch</button><button type="button" class="lang-it" onclick="setPollLanguage('it')">🇮🇹 Italiano</button></div></div>
   <div class="poll-page">
     <div class="poll-logo">⚔️</div>
     <div class="poll-guild">Les Nains de Mithril</div>
@@ -6378,7 +6407,7 @@ function copyT1Link(){
 </style>
 <script>
 // Traduction locale des trois pages publiques. Les pseudos et les valeurs de puissance ne sont pas traduits.
-let pollLanguage=['fr','en','es'].includes(localStorage.getItem('alliance_poll_language'))?localStorage.getItem('alliance_poll_language'):'fr';
+let pollLanguage=['fr','en','es','de','it'].includes(localStorage.getItem('alliance_poll_language'))?localStorage.getItem('alliance_poll_language'):'fr';
 const pollTranslations={
 'Recensement Puissance T1':'T1 Power Survey',
 'Pour déclarer ta puissance T1, ajoute une capture d’écran de ton équipe. La puissance sera reconnue automatiquement. Une seule déclaration par joueur et par recensement.':'To report your T1 power, upload a screenshot of your team. Power will be detected automatically. One submission per player per survey.',
@@ -6478,15 +6507,135 @@ const pollTranslationsEs={
 "Tu peux saisir la puissance dans la case, en conservant la capture.":"Puedes introducir la potencia en el campo y conservar la captura.",
 "Image JPG, PNG ou WEBP de 5 Mo maximum.":"Imagen JPG, PNG o WEBP de 5 MB como máximo."
 };
+const pollTranslationsDe={
+ "Recensement Puissance T1": "T1-Kraft-Erfassung",
+ "Pour déclarer ta puissance T1, ajoute une capture d’écran de ton équipe. La puissance sera reconnue automatiquement. Une seule déclaration par joueur et par recensement.": "Um deine T1-Kraft zu melden, lade einen Screenshot deines Teams hoch. Die Kraft wird automatisch erkannt. Eine Meldung pro Spieler und Erfassung.",
+ "Chargement du recensement…": "Erfassung wird geladen…",
+ "Aucun recensement ouvert. Reviens à la prochaine session.": "Derzeit ist keine Erfassung geöffnet. Komm zur nächsten Runde zurück.",
+ "Ton pseudo": "Dein Spielername",
+ "Chargement…": "Wird geladen…",
+ "Exemple de capture attendue": "Beispiel für den Screenshot",
+ "Prends une capture de l’écran de formation de ton équipe T1, avec ": "Erstelle einen Screenshot der T1-Teamaufstellung, auf dem ",
+ "la puissance totale bien visible en haut": "die Gesamtkraft oben gut sichtbar ist",
+ " (ici : ": " (hier: ",
+ "). Voici un exemple :": "). Hier ein Beispiel:",
+ "L’image sert uniquement d’exemple : ajoute ta propre capture pour déclarer ta puissance.": "Dieses Bild ist nur ein Beispiel. Lade deinen eigenen Screenshot hoch, um deine Kraft zu melden.",
+ "Ajouter une capture d’écran": "Screenshot hinzufügen",
+ "📷 Choisir une capture de ton équipe T1 (JPG / PNG / WEBP, max 5 Mo)": "📷 Screenshot deines T1-Teams auswählen (JPG / PNG / WEBP, max. 5 MB)",
+ "Le site remplit automatiquement la puissance détectée. Vérifie-la et corrige-la si nécessaire avant de valider. La capture reste obligatoire.": "Die erkannte Kraft wird automatisch eingetragen. Prüfe und korrigiere sie bei Bedarf vor dem Absenden. Ein Screenshot ist weiterhin erforderlich.",
+ "⚡ Puissance T1 détectée (modifiable)": "⚡ Erkannte T1-Kraft (bearbeitbar)",
+ "Valeur remplie après lecture de la capture. Tu peux la corriger manuellement (ex. 51.00M).": "Wert aus dem Screenshot. Du kannst ihn manuell korrigieren (z. B. 51.00M).",
+ "✓ Valider ma puissance T1": "✓ Meine T1-Kraft absenden",
+ "Puissance enregistrée !": "Kraft gespeichert!",
+ "Ta déclaration est verrouillée. Contacte le staff pour toute correction.": "Deine Meldung ist gesperrt. Wende dich für Korrekturen an die Leitung.",
+ "Bataille du Canyon": "Canyon-Schlacht",
+ "Tempête du Désert": "Wüstensturm",
+ "Indique ta disponibilité. Un seul vote par joueur.": "Gib deine Verfügbarkeit an. Eine Stimme pro Spieler.",
+ "Indique ta disponibilité pour l’événement. Un seul vote par joueur.": "Gib deine Verfügbarkeit für das Ereignis an. Eine Stimme pro Spieler.",
+ "Chargement de la session…": "Runde wird geladen…",
+ "Qui es-tu ?": "Wer bist du?",
+ "Sélectionne ton pseudo dans la liste": "Wähle deinen Spielernamen aus der Liste",
+ "Ta disponibilité ?": "Deine Verfügbarkeit?",
+ "Présent": "Dabei",
+ "Remplaçant": "Ersatzspieler",
+ "Absent": "Abwesend",
+ "Disponible comme titulaire": "Als Stammspieler verfügbar",
+ "Disponible si besoin": "Bei Bedarf verfügbar",
+ "Indisponible": "Nicht verfügbar",
+ "Je serai là — rôle titulaire": "Ich bin dabei — Stammspieler",
+ "Je ne serai pas là": "Ich bin nicht dabei",
+ "← Changer de pseudo": "← Spielernamen ändern",
+ "← Changer de nom": "← Namen ändern",
+ "Ta réponse est verrouillée. Contacte le staff pour une correction.": "Deine Antwort ist gesperrt. Wende dich für Korrekturen an die Leitung.",
+ "Exemple : 51.00M": "Beispiel: 51.00M",
+ "Recherche ton nom…": "Suche deinen Namen…",
+ "Exemple de capture d’écran Last War attendue : écran de formation avec la puissance totale 23.22M visible en haut": "Beispiel eines Last-War-Screenshots: Aufstellung mit der Gesamtkraft 23.22M oben",
+ "Aperçu de la capture": "Screenshot-Vorschau",
+ "Aucun sondage ouvert.": "Derzeit ist keine Umfrage geöffnet.",
+ "Ce sondage est clôturé.": "Diese Umfrage ist geschlossen.",
+ "La session est clôturée.": "Die Runde ist geschlossen.",
+ "Choisis une capture d’écran.": "Wähle einen Screenshot aus.",
+ "Chargement de la reconnaissance… La première utilisation peut prendre 20 à 40 secondes.": "Texterkennung wird geladen… Die erste Nutzung kann 20 bis 40 Sekunden dauern.",
+ "Préparation de la capture…": "Screenshot wird vorbereitet…",
+ "Puissance détectée : ": "Erkannte Kraft: ",
+ ". Vérifie avant de valider.": ". Vor dem Absenden prüfen.",
+ "Tu peux saisir la puissance dans la case, en conservant la capture.": "Du kannst die Kraft im Feld eingeben und den Screenshot beibehalten.",
+ "Image JPG, PNG ou WEBP de 5 Mo maximum.": "JPG-, PNG- oder WEBP-Bild, maximal 5 MB."
+};
+const pollTranslationsIt={
+ "Recensement Puissance T1": "Censimento potenza T1",
+ "Pour déclarer ta puissance T1, ajoute une capture d’écran de ton équipe. La puissance sera reconnue automatiquement. Une seule déclaration par joueur et par recensement.": "Per dichiarare la tua potenza T1, carica uno screenshot della tua squadra. La potenza verrà rilevata automaticamente. Una dichiarazione per giocatore e per censimento.",
+ "Chargement du recensement…": "Caricamento censimento…",
+ "Aucun recensement ouvert. Reviens à la prochaine session.": "Nessun censimento aperto. Torna alla prossima sessione.",
+ "Ton pseudo": "Il tuo nome giocatore",
+ "Chargement…": "Caricamento…",
+ "Exemple de capture attendue": "Esempio di screenshot richiesto",
+ "Prends une capture de l’écran de formation de ton équipe T1, avec ": "Fai uno screenshot della formazione della tua squadra T1, con ",
+ "la puissance totale bien visible en haut": "la potenza totale ben visibile in alto",
+ " (ici : ": " (qui: ",
+ "). Voici un exemple :": "). Ecco un esempio:",
+ "L’image sert uniquement d’exemple : ajoute ta propre capture pour déclarer ta puissance.": "Questa immagine è solo un esempio: carica il tuo screenshot per dichiarare la potenza.",
+ "Ajouter une capture d’écran": "Aggiungi uno screenshot",
+ "📷 Choisir une capture de ton équipe T1 (JPG / PNG / WEBP, max 5 Mo)": "📷 Scegli uno screenshot della tua squadra T1 (JPG / PNG / WEBP, max 5 MB)",
+ "Le site remplit automatiquement la puissance détectée. Vérifie-la et corrige-la si nécessaire avant de valider. La capture reste obligatoire.": "Il sito inserisce automaticamente la potenza rilevata. Controllala e correggila se necessario prima di inviare. Lo screenshot è obbligatorio.",
+ "⚡ Puissance T1 détectée (modifiable)": "⚡ Potenza T1 rilevata (modificabile)",
+ "Valeur remplie après lecture de la capture. Tu peux la corriger manuellement (ex. 51.00M).": "Valore ricavato dallo screenshot. Puoi correggerlo manualmente (es. 51.00M).",
+ "✓ Valider ma puissance T1": "✓ Invia la mia potenza T1",
+ "Puissance enregistrée !": "Potenza salvata!",
+ "Ta déclaration est verrouillée. Contacte le staff pour toute correction.": "La tua dichiarazione è bloccata. Contatta lo staff per eventuali correzioni.",
+ "Bataille du Canyon": "Battaglia del Canyon",
+ "Tempête du Désert": "Tempesta del Deserto",
+ "Indique ta disponibilité. Un seul vote par joueur.": "Indica la tua disponibilità. Un voto per giocatore.",
+ "Indique ta disponibilité pour l’événement. Un seul vote par joueur.": "Indica la tua disponibilità per l'evento. Un voto per giocatore.",
+ "Chargement de la session…": "Caricamento sessione…",
+ "Qui es-tu ?": "Chi sei?",
+ "Sélectionne ton pseudo dans la liste": "Seleziona il tuo nome dalla lista",
+ "Ta disponibilité ?": "La tua disponibilità?",
+ "Présent": "Presente",
+ "Remplaçant": "Riserva",
+ "Absent": "Assente",
+ "Disponible comme titulaire": "Disponibile come titolare",
+ "Disponible si besoin": "Disponibile se necessario",
+ "Indisponible": "Non disponibile",
+ "Je serai là — rôle titulaire": "Ci sarò — titolare",
+ "Je ne serai pas là": "Non ci sarò",
+ "← Changer de pseudo": "← Cambia nome giocatore",
+ "← Changer de nom": "← Cambia nome",
+ "Ta réponse est verrouillée. Contacte le staff pour une correction.": "La tua risposta è bloccata. Contatta lo staff per una correzione.",
+ "Exemple : 51.00M": "Esempio: 51.00M",
+ "Recherche ton nom…": "Cerca il tuo nome…",
+ "Exemple de capture d’écran Last War attendue : écran de formation avec la puissance totale 23.22M visible en haut": "Esempio di screenshot Last War: schermata della formazione con potenza totale 23.22M visibile in alto",
+ "Aperçu de la capture": "Anteprima dello screenshot",
+ "Aucun sondage ouvert.": "Nessun sondaggio aperto.",
+ "Ce sondage est clôturé.": "Questo sondaggio è chiuso.",
+ "La session est clôturée.": "La sessione è chiusa.",
+ "Choisis une capture d’écran.": "Scegli uno screenshot.",
+ "Chargement de la reconnaissance… La première utilisation peut prendre 20 à 40 secondes.": "Caricamento riconoscimento testo… Il primo utilizzo può richiedere 20–40 secondi.",
+ "Préparation de la capture…": "Preparazione screenshot…",
+ "Puissance détectée : ": "Potenza rilevata: ",
+ ". Vérifie avant de valider.": ". Controlla prima di inviare.",
+ "Tu peux saisir la puissance dans la case, en conservant la capture.": "Puoi inserire la potenza nel campo mantenendo lo screenshot.",
+ "Image JPG, PNG ou WEBP de 5 Mo maximum.": "Immagine JPG, PNG o WEBP di massimo 5 MB."
+};
 const pollOriginalText=new WeakMap(),pollOriginalAttrs=new WeakMap();
 const pollRoots=()=>['t1PollOverlay','canyonPollOverlay','pollOverlay'].map(id=>document.getElementById(id)).filter(Boolean);
 function translatePollString(source){
  if(pollLanguage==='fr')return source;
  const trimmed=source.trim();if(!trimmed)return source;
- let result=(pollLanguage==='es'?pollTranslationsEs:pollTranslations)[trimmed];
+ let result=({es:pollTranslationsEs,de:pollTranslationsDe,it:pollTranslationsIt,en:pollTranslations}[pollLanguage]||pollTranslations)[trimmed];
  if(result===undefined){
    result=trimmed;
-   const dynamic=pollLanguage==='es'?[
+   const dynamic=pollLanguage==='de'?[
+    [/^Puissance détectée : (.+)\. Vérifie avant de valider\.$/,'Erkannte Kraft: $1. Vor dem Absenden prüfen.'],
+    [/^Recensement (.+) ouvert$/,'Erfassung $1 geöffnet'],
+    [/^Sondage clôturé/i,'Umfrage geschlossen'],[/^Sondage ouvert/i,'Umfrage geöffnet'],
+    [/^Merci pour ta réponse/i,'Danke für deine Antwort'],[/^Ta réponse a été enregistrée/i,'Deine Antwort wurde gespeichert'],[/^Puissance (.+) enregistrée/i,'Kraft $1 gespeichert'],
+   ]:pollLanguage==='it'?[
+    [/^Puissance détectée : (.+)\. Vérifie avant de valider\.$/,'Potenza rilevata: $1. Controlla prima di inviare.'],
+    [/^Recensement (.+) ouvert$/,'Censimento $1 aperto'],
+    [/^Sondage clôturé/i,'Sondaggio chiuso'],[/^Sondage ouvert/i,'Sondaggio aperto'],
+    [/^Merci pour ta réponse/i,'Grazie per la risposta'],[/^Ta réponse a été enregistrée/i,'La tua risposta è stata salvata'],[/^Puissance (.+) enregistrée/i,'Potenza $1 salvata'],
+   ]:pollLanguage==='es'?[
     [/^Puissance détectée : (.+)\. Vérifie avant de valider\.$/,'Potencia detectada: $1. Compruébala antes de enviar.'],
     [/^Recensement (.+) ouvert$/,'Censo $1 abierto'],
     [/^Sondage clôturé/i,'Encuesta cerrada'],
@@ -6531,7 +6680,7 @@ function applyPollTranslations(){
  });
  document.documentElement.lang=pollLanguage;
 }
-function setPollLanguage(lang){pollLanguage=['fr','en','es'].includes(lang)?lang:'fr';localStorage.setItem('alliance_poll_language',pollLanguage);applyPollTranslations();}
+function setPollLanguage(lang){pollLanguage=['fr','en','es','de','it'].includes(lang)?lang:'fr';localStorage.setItem('alliance_poll_language',pollLanguage);applyPollTranslations();}
 window.addEventListener('DOMContentLoaded',()=>{
  applyPollTranslations();
  // Les réponses sont injectées dynamiquement par le code des sondages.
