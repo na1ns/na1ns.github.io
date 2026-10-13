@@ -2707,7 +2707,34 @@ async function recordTddFairParticipation(placedIds,starterIds){
   await saveTddFairStats();
 }
 
+// V16 — Regroupement des notifications Realtime : une seule lecture pour une rafale.
+let _rtRefreshTimer=null;
+let _rtRefreshPending=false;
+let _rtRefreshRunning=false;
+function scheduleRealtimeRefresh(){
+  _rtRefreshPending=true;
+  if(_rtRefreshTimer!==null)return;
+  _rtRefreshTimer=setTimeout(async()=>{
+    _rtRefreshTimer=null;
+    if(_rtRefreshRunning)return;
+    _rtRefreshRunning=true;
+    try{
+      while(_rtRefreshPending){
+        _rtRefreshPending=false;
+        await loadAll();
+      }
+    }finally{_rtRefreshRunning=false;}
+  },180);
+}
+
+let _loadAllInFlight=null;
 async function loadAll(){
+  if(_loadAllInFlight)return _loadAllInFlight;
+  _loadAllInFlight=_loadAllImpl();
+  try{return await _loadAllInFlight;}
+  finally{_loadAllInFlight=null;}
+}
+async function _loadAllImpl(){
   if(!sb)return;
   try{
     const[{data:pData,error:pErr},{data:hData,error:hErr},{data:wData},{data:erData},{data:etData}]=await Promise.all([
@@ -2793,9 +2820,9 @@ function subscribeRT(){
   sb.channel('canyon_session_management_sync').on('postgres_changes',{event:'*',schema:'public',table:'availability_sessions'},async()=>{try{await fetchAvailabilitySession('canyon');await loadCanyonPollResults();}catch(e){console.warn('Session Canyon :',e);}}).subscribe();
 
   sb.channel('tr-changes')
-    .on('postgres_changes',{event:'*',schema:'public',table:'participants'},()=>loadAll())
-    .on('postgres_changes',{event:'*',schema:'public',table:'historique'},()=>loadAll())
-    .on('postgres_changes',{event:'*',schema:'public',table:'weeks_history'},()=>loadAll())
+    .on('postgres_changes',{event:'*',schema:'public',table:'participants'},scheduleRealtimeRefresh)
+    .on('postgres_changes',{event:'*',schema:'public',table:'historique'},scheduleRealtimeRefresh)
+    .on('postgres_changes',{event:'*',schema:'public',table:'weeks_history'},scheduleRealtimeRefresh)
     .on('postgres_changes',{event:'*',schema:'public',table:'event_roles'},async()=>{
       const{data}=await sb.from('event_roles').select('*');
       evRoles={};
@@ -5079,6 +5106,7 @@ function render(){
   const minD=participants.length?Math.min(...participants.map(p=>p.driver_count)):0;
   const minV=participants.length?Math.min(...participants.map(p=>p.vip_count)):0;
   const filtered=searchFilter?participants.filter(p=>p.name.toLowerCase().includes(searchFilter)):participants;
+  const participantIndex=new Map(participants.map((p,i)=>[p.id,i]));
 
 
     head.style.display='';
@@ -5089,14 +5117,14 @@ function render(){
       body.innerHTML=`<div style="padding:16px;font-size:13px;color:var(--text3);font-style:italic">${searchFilter?'Aucun résultat pour "'+searchFilter+'"':'Aucun participant.'}</div>`;
     }else{
       body.innerHTML=filtered.map(p=>{
-        const realIdx=participants.indexOf(p);const elig=isEligible(p);
+        const realIdx=participantIndex.get(p.id);const elig=isEligible(p);
         const pd=p.driver_count===minD,pv=p.vip_count===minV;const isPresent=presentIds.has(p.id);
         const absCls=presentMode&&!isPresent?' absent':'';const eligCls=elig?' eligible':' not-eligible';
         const nameHtml=searchFilter?p.name.replace(new RegExp(`(${searchFilter.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`,'gi'),'<mark style="background:rgba(255,184,77,0.2);color:var(--amber);border-radius:3px;padding:0 2px">$1</mark>'):p.name;
         const coffresBtns=getCoffres(p).map((missed,di)=>`<button class="coffre-btn${missed?' missed':''}" onclick="toggleCoffre(${p.id},${di})" title="${DAYS[di]}: ${missed?'Manqué':'Fait'}">${missed?'✗':'✓'}</button>`).join('');
         return `<div class="p-row${absCls}${eligCls}" data-idx="${realIdx}" style="grid-template-columns:${cols}" draggable="${searchFilter?'false':'true'}" ondragstart="onDragStart(event,${realIdx})" ondragover="onDragOver(event,${realIdx})" ondrop="onDrop(event,${realIdx})" ondragend="onDragEnd()">
           ${showPres?`<div style="display:flex;align-items:center;justify-content:center"><input type="checkbox" class="cb-pres" ${isPresent?'checked':''} onchange="togglePresent(${p.id})" ondragstart="event.stopPropagation()"/></div>`:''}
-          <span class="player-num">${participants.indexOf(p)+1}</span>
+          <span class="player-num">${realIdx+1}</span>
           <div class="name-cell"><span class="name-disp" onclick="startEdit(${realIdx})">${nameHtml}</span><input class="name-inp" ondragstart="event.stopPropagation()" onblur="commitEdit(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
           <div class="power-cell"><span class="power-disp${!p.power_t1?' empty-val':''}" onclick="startEditPower(${realIdx})" title="${isAdminOrStaff()?'Cliquer pour corriger la puissance':'Puissance T1'}" style="${isAdminOrStaff()?'cursor:pointer':'cursor:default'}">${p.power_t1?t1FormatPower(p.power_t1):'—'}${isAdminOrStaff()?' ✏️':''}</span><input class="power-inp" type="text" inputmode="decimal" placeholder="51.00" title="Puissance en millions (M)" ondragstart="event.stopPropagation()" onblur="commitPower(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
           <div style="display:contents">${coffresBtns}</div>
