@@ -975,6 +975,26 @@ body.light #appScreen header{color:#fff4d2}body.light #appScreen header h1{color
 .lw-stats-chart-summary{font-size:12px;color:var(--text2);margin-bottom:18px}
 #chartBuilderCanvas{max-width:100%;height:auto}
 @media(max-width:850px){.lw-stats-chart-layout{grid-template-columns:minmax(0,1fr)}.lw-stats-chart-controls{position:static}.lw-stats-chart-display{padding:12px}.lw-stats-chart-title{font-size:16px}}
+
+
+/* V13 — paramètres du graphique au-dessus, graphique sur toute la largeur */
+.lw-stats-chart-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;width:100%;min-width:0}
+.lw-stats-chart-controls{position:static;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:start;gap:14px 18px;width:100%;min-width:0}
+.lw-stats-chart-controls>div{min-width:0}
+.lw-stats-chart-display{width:100%;min-width:0;box-sizing:border-box}
+@media(max-width:900px){.lw-stats-chart-controls{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.lw-stats-chart-controls{grid-template-columns:minmax(0,1fr);padding:13px;gap:12px}.lw-stats-chart-display{padding:12px}}
+
+/* V14 — Sélecteur de langue intégré à la carte de chaque sondage */
+#t1PollOverlay .poll-page > .poll-language,
+#canyonPollOverlay .poll-page > .poll-language,
+#pollOverlay .poll-page > .poll-language{position:static!important;inset:auto!important;transform:none!important;margin:12px auto 18px!important;padding:9px 8px!important;width:100%!important;max-width:100%!important;box-sizing:border-box;display:flex!important;flex-direction:column;align-items:center;gap:7px;background:rgba(127,152,188,.09);border:1px solid var(--border2);border-radius:12px;box-shadow:none!important;}
+#t1PollOverlay .poll-page > .poll-language .poll-language-options,
+#canyonPollOverlay .poll-page > .poll-language .poll-language-options,
+#pollOverlay .poll-page > .poll-language .poll-language-options{display:flex;flex-wrap:wrap;justify-content:center;gap:5px;width:100%;}
+#t1PollOverlay .poll-page > .poll-language button,
+#canyonPollOverlay .poll-page > .poll-language button,
+#pollOverlay .poll-page > .poll-language button{white-space:nowrap;padding:7px 9px;font-size:11px;}
 </style>
 <body>
 
@@ -6138,13 +6158,40 @@ async function loadT1History(){
   const known=vals.filter(x=>x.power!==null);if(!known.length){result.textContent='Aucune puissance déclarée pour ce joueur.';return;}
   const first=known[0].power,last=known[known.length-1].power,delta=last-first;
   const summary=document.createElement('h3');summary.textContent='Dernière puissance : '+t1FormatPower(last)+' • Évolution : '+(delta>=0?'+':'')+t1FormatPower(delta)+' ('+(first?((delta/first)*100).toFixed(1):'0')+' %)';result.appendChild(summary);
-  const svgNS='http://www.w3.org/2000/svg',svg=document.createElementNS(svgNS,'svg');svg.setAttribute('viewBox','0 0 680 230');svg.style.cssText='width:100%;max-width:850px;display:block;margin:16px 0';
-  const max=Math.max(...known.map(x=>x.power)),min=Math.min(...known.map(x=>x.power));const span=Math.max(max-min,max*.05,1);
-  const xy=vals.map((x,i)=>({x:40+(i*(600/Math.max(1,vals.length-1))),y:x.power===null?null:190-(x.power-min)/span*140,power:x.power}));
-  [50,120,190].forEach(y=>{const line=document.createElementNS(svgNS,'line');line.setAttribute('x1','40');line.setAttribute('x2','650');line.setAttribute('y1',y);line.setAttribute('y2',y);line.setAttribute('stroke','currentColor');line.setAttribute('opacity','.18');svg.appendChild(line);});
-  let prev=null;xy.forEach((pt,i)=>{if(pt.y!==null){if(prev){const line=document.createElementNS(svgNS,'line');line.setAttribute('x1',prev.x);line.setAttribute('y1',prev.y);line.setAttribute('x2',pt.x);line.setAttribute('y2',pt.y);line.setAttribute('stroke','#7c9fff');line.setAttribute('stroke-width','3');svg.appendChild(line);}const dot=document.createElementNS(svgNS,'circle');dot.setAttribute('cx',pt.x);dot.setAttribute('cy',pt.y);dot.setAttribute('r','5');dot.setAttribute('fill','#7c9fff');svg.appendChild(dot);prev=pt;}else prev=null;
-   const label=document.createElementNS(svgNS,'text');label.setAttribute('x',pt.x);label.setAttribute('y','215');label.setAttribute('text-anchor','middle');label.setAttribute('fill','currentColor');label.setAttribute('font-size','11');label.textContent='R'+(i+1);svg.appendChild(label);
-  });result.appendChild(svg);
+  // Courbe T1 : axes chiffrés, étiquettes, valeurs et périodes manquantes visibles.
+  const svgNS='http://www.w3.org/2000/svg',svg=document.createElementNS(svgNS,'svg');
+  const W=Math.max(760,vals.length*88+120),H=340,L=82,R=35,T=44,B=74;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);svg.setAttribute('role','img');
+  svg.setAttribute('aria-label','Évolution de la puissance T1 en millions pour '+(players.find(x=>Number(x.id)===id)?.name||'ce joueur'));
+  svg.style.cssText=`width:${W}px;max-width:none;display:block;background:#f8fbff;border-radius:12px`;
+  const wrap=document.createElement('div');wrap.style.cssText='overflow-x:auto;max-width:100%;border:1px solid var(--border);border-radius:14px;background:#f8fbff;padding:6px;margin:16px 0';wrap.appendChild(svg);result.appendChild(wrap);
+  const add=(tag,attrs,text)=>{const n=document.createElementNS(svgNS,tag);Object.entries(attrs).forEach(([k,v])=>n.setAttribute(k,String(v)));if(text!==undefined)n.textContent=text;svg.appendChild(n);return n;};
+  const powers=known.map(x=>Number(x.power)/1e6),rawMin=Math.min(...powers),rawMax=Math.max(...powers);
+  const pad=Math.max((rawMax-rawMin)*.15,rawMax*.025,.5),lo=Math.max(0,rawMin-pad),hi=rawMax+pad;
+  const px=i=>L+(i*(W-L-R)/Math.max(1,vals.length-1));
+  const py=p=>T+(hi-p/1e6)/(hi-lo)*(H-T-B);
+  add('text',{x:L,y:24,fill:'#223650','font-size':15,'font-weight':700},'PUISSANCE T1 (M)');
+  for(let i=0;i<=4;i++){
+    const power=lo+(hi-lo)*i/4,y=T+(H-T-B)*(1-i/4);
+    add('line',{x1:L,y1:y,x2:W-R,y2:y,stroke:'#dbe5ef','stroke-width':1});
+    add('text',{x:L-12,y:y+5,'text-anchor':'end',fill:'#52647a','font-size':13},power.toFixed(1)+'M');
+  }
+  let prev=null;
+  vals.forEach((entry,i)=>{
+    const x=px(i),power=entry.power,y=power===null?null:py(Number(power));
+    add('text',{x,y:H-38,'text-anchor':'middle',fill:'#334a65','font-size':13,'font-weight':600},'R'+(i+1));
+    const roundLabel=String(entry.round.label||'Recensement '+(i+1));
+    const date=entry.round.opened_at?new Date(entry.round.opened_at).toLocaleDateString('fr-FR'):'',short=(roundLabel.length>14?roundLabel.slice(0,12)+'…':roundLabel);
+    add('text',{x,y:H-20,'text-anchor':'middle',fill:'#68788d','font-size':10},short);
+    if(y===null){add('text',{x,y:T+20,'text-anchor':'middle',fill:'#9aa5b5','font-size':12},'—');prev=null;return;}
+    if(prev)add('line',{x1:prev.x,y1:prev.y,x2:x,y2:y,stroke:'#2372c9','stroke-width':3.5,'stroke-linecap':'round'});
+    add('circle',{cx:x,cy:y,r:6,fill:'#ff9d27',stroke:'#fff','stroke-width':2});
+    const valueLabel=(Number(power)/1e6).toFixed(2)+'M';
+    add('text',{x,y:Math.max(31,y-13),'text-anchor':'middle',fill:'#173d6b','font-size':13,'font-weight':700},valueLabel);
+    const tooltip=document.createElementNS(svgNS,'title');tooltip.textContent=roundLabel+(date?' • '+date:'')+' : '+valueLabel;svg.lastChild.appendChild(tooltip);
+    prev={x,y};
+  });
+  const note=document.createElement('p');note.className='t1-help';note.textContent='Valeurs en millions (M). Les recensements sans réponse ne sont pas reliés. Sur téléphone, fais glisser le graphique horizontalement si nécessaire.';result.appendChild(note);
   const saveBtn=document.createElement('button');saveBtn.type='button';saveBtn.className='btn';saveBtn.style.margin='6px 0 18px';saveBtn.textContent='📷 Enregistrer le graphique T1 en JPEG';
   saveBtn.onclick=()=>saveT1HistoryJpeg(svg,players.find(x=>Number(x.id)===id)?.name||'joueur');result.appendChild(saveBtn);
   const table=document.createElement('table');table.style.cssText='width:100%;border-collapse:collapse';
@@ -6169,13 +6216,13 @@ function saveAllianceChartJpeg(){
   downloadAllianceJpeg(canvas,'NA1N-graphique-puissance-'+new Date().toISOString().slice(0,10)+'.jpg');
 }
 function saveT1HistoryJpeg(svg,player){
-  const copy=svg.cloneNode(true);copy.setAttribute('xmlns','http://www.w3.org/2000/svg');copy.setAttribute('width','1360');copy.setAttribute('height','460');
+  const copy=svg.cloneNode(true);copy.setAttribute('xmlns','http://www.w3.org/2000/svg');copy.setAttribute('width','1360');copy.setAttribute('height','680');
   copy.querySelectorAll('[fill="currentColor"]').forEach(n=>n.setAttribute('fill','#26344c'));
   copy.querySelectorAll('[stroke="currentColor"]').forEach(n=>n.setAttribute('stroke','#8a96a8'));
-  const bg=document.createElementNS('http://www.w3.org/2000/svg','rect');bg.setAttribute('width','680');bg.setAttribute('height','230');bg.setAttribute('fill','#ffffff');copy.insertBefore(bg,copy.firstChild);
+  const bg=document.createElementNS('http://www.w3.org/2000/svg','rect');const vb=svg.viewBox.baseVal;bg.setAttribute('width',String(vb.width));bg.setAttribute('height',String(vb.height));bg.setAttribute('fill','#ffffff');copy.insertBefore(bg,copy.firstChild);
   const blob=new Blob([new XMLSerializer().serializeToString(copy)],{type:'image/svg+xml;charset=utf-8'});
   const url=URL.createObjectURL(blob),img=new Image();
-  img.onload=()=>{const canvas=document.createElement('canvas');canvas.width=1360;canvas.height=460;canvas.getContext('2d').drawImage(img,0,0,1360,460);URL.revokeObjectURL(url);
+  img.onload=()=>{const canvas=document.createElement('canvas');canvas.width=1360;canvas.height=680;canvas.getContext('2d').drawImage(img,0,0,1360,680);URL.revokeObjectURL(url);
     downloadAllianceJpeg(canvas,'NA1N-evolution-T1-'+String(player).replace(/[^a-z0-9_-]/gi,'_').slice(0,45)+'.jpg');};
   img.onerror=()=>{URL.revokeObjectURL(url);alert('Impossible de convertir le graphique en JPEG.');};img.src=url;
 }
@@ -6187,9 +6234,9 @@ function copyT1Link(){
 
 
 <!-- ══ SONDAGE PUISSANCE T1 ══ -->
-<div id="t1PollOverlay"><div class="poll-language" role="group" aria-label="Choix de la langue"><span class="poll-language-label">🌐 <span>LANGUE / LANGUAGE</span></span><div class="poll-language-options"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button><button type="button" class="lang-es" onclick="setPollLanguage('es')">🇪🇸 Español</button><button type="button" class="lang-de" onclick="setPollLanguage('de')">🇩🇪 Deutsch</button><button type="button" class="lang-it" onclick="setPollLanguage('it')">🇮🇹 Italiano</button></div></div>
-  <div class="poll-page">
+<div id="t1PollOverlay"><div class="poll-page">
     <div class="poll-logo">⚡</div><div class="poll-guild">Les Nains de Mithril</div>
+<div class="poll-language" role="group" aria-label="Choix de la langue"><span class="poll-language-label">🌐 <span>LANGUE / LANGUAGE</span></span><div class="poll-language-options"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button><button type="button" class="lang-es" onclick="setPollLanguage('es')">🇪🇸 Español</button><button type="button" class="lang-de" onclick="setPollLanguage('de')">🇩🇪 Deutsch</button><button type="button" class="lang-it" onclick="setPollLanguage('it')">🇮🇹 Italiano</button></div></div>
     <div class="poll-title">Recensement Puissance T1</div><div class="poll-subtitle">Pour déclarer ta puissance T1, ajoute une capture d’écran de ton équipe. La puissance sera reconnue automatiquement. Une seule déclaration par joueur et par recensement.</div><div id="t1RoundLabel" class="t1-help">Chargement du recensement…</div>
     <div id="t1ClosedInfo" class="poll-confirm-card" style="display:none">Aucun recensement ouvert. Reviens à la prochaine session.</div>
     <div id="t1Form">
@@ -6260,9 +6307,9 @@ function copyT1Link(){
     </div>
   </div>
 </div>
-<div id="canyonPollOverlay" style="display:none"><div class="poll-language" role="group" aria-label="Choix de la langue"><span class="poll-language-label">🌐 <span>LANGUE / LANGUAGE</span></span><div class="poll-language-options"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button><button type="button" class="lang-es" onclick="setPollLanguage('es')">🇪🇸 Español</button><button type="button" class="lang-de" onclick="setPollLanguage('de')">🇩🇪 Deutsch</button><button type="button" class="lang-it" onclick="setPollLanguage('it')">🇮🇹 Italiano</button></div></div>
-  <div class="poll-page">
+<div id="canyonPollOverlay" style="display:none"><div class="poll-page">
     <div class="poll-logo">🏜️</div><div class="poll-guild">Les Nains de Mithril</div>
+<div class="poll-language" role="group" aria-label="Choix de la langue"><span class="poll-language-label">🌐 <span>LANGUE / LANGUAGE</span></span><div class="poll-language-options"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button><button type="button" class="lang-es" onclick="setPollLanguage('es')">🇪🇸 Español</button><button type="button" class="lang-de" onclick="setPollLanguage('de')">🇩🇪 Deutsch</button><button type="button" class="lang-it" onclick="setPollLanguage('it')">🇮🇹 Italiano</button></div></div>
     <div class="poll-title">Bataille du Canyon</div>
     <div class="poll-subtitle">Indique ta disponibilité. Un seul vote par joueur.</div>
     <p id="canyonSessionLabel" class="t1-help">Chargement de la session…</p><div id="canyonPollGate" class="poll-confirm-card" style="display:none"></div>
@@ -6288,10 +6335,10 @@ function copyT1Link(){
   </div>
 </div>
 <!-- ══ POLL TDD ══ -->
-<div id="pollOverlay" style="display:none"><div class="poll-language" role="group" aria-label="Choix de la langue"><span class="poll-language-label">🌐 <span>LANGUE / LANGUAGE</span></span><div class="poll-language-options"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button><button type="button" class="lang-es" onclick="setPollLanguage('es')">🇪🇸 Español</button><button type="button" class="lang-de" onclick="setPollLanguage('de')">🇩🇪 Deutsch</button><button type="button" class="lang-it" onclick="setPollLanguage('it')">🇮🇹 Italiano</button></div></div>
-  <div class="poll-page">
+<div id="pollOverlay" style="display:none"><div class="poll-page">
     <div class="poll-logo">⚔️</div>
     <div class="poll-guild">Les Nains de Mithril</div>
+<div class="poll-language" role="group" aria-label="Choix de la langue"><span class="poll-language-label">🌐 <span>LANGUE / LANGUAGE</span></span><div class="poll-language-options"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button><button type="button" class="lang-es" onclick="setPollLanguage('es')">🇪🇸 Español</button><button type="button" class="lang-de" onclick="setPollLanguage('de')">🇩🇪 Deutsch</button><button type="button" class="lang-it" onclick="setPollLanguage('it')">🇮🇹 Italiano</button></div></div>
     <div class="poll-title">Tempête du Désert</div>
     <div class="poll-subtitle">Indique ta disponibilité pour l’événement. Un seul vote par joueur.</div>
 
