@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bienvenue chez NA1N 🚂</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500;600&family=Rajdhani:wght@400;500;600;700&display=swap">
 <script>
 const SUPABASE_URL="https://yudbfuqudtqkdddjnaad.supabase.co";
 const SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl1ZGJmdXF1ZHRxa2RkZGpuYWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2OTA0MjQsImV4cCI6MjA5NDI2NjQyNH0.G-wFqBVSp05P3HfiDMgaGxufm3n3gWWaKECOVTzPeEA";
@@ -846,6 +846,135 @@ body.light .poll-page{box-shadow:0 15px 45px rgba(0,0,0,.16)!important}
 .t1-staff-row{display:grid;grid-template-columns:minmax(110px,1fr) 130px auto;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)}
 @media(max-width:530px){.t1-staff-row{grid-template-columns:1fr 1fr}.t1-staff-row strong{grid-column:1/-1}}
 
+
+/* ===== THEME TEST : LAST WAR / QG DES NAINS DE MITHRIL =====
+   Habillage CSS uniquement : aucune modification des traitements ou données. */
+:root{
+ --bg:#101c23;--surface:#1a2931;--surface2:#20343c;--surface3:#2a4049;--surface4:#344b53;
+ --border:rgba(255,207,117,.13);--border2:rgba(255,207,117,.25);--border3:rgba(255,207,117,.4);
+ --text:#f9f3de;--text2:#c7c7b4;--text3:#9ba9a3;--text4:#81918d;
+ --blue:#69d9ed;--blue2:#21b9d6;--blue-d:#168aa7;--blue-l:rgba(33,185,214,.14);--blue-ll:rgba(33,185,214,.07);
+ --amber:#ffbd45;--amber-l:rgba(255,189,69,.14);--gold:#ffdc79;--gold-l:rgba(255,220,121,.12);
+ --green:#8fe087;--green-l:rgba(143,224,135,.12);--red:#ff7866;--red-l:rgba(255,120,102,.12);
+ --purple:#d4a8fa;--purple-l:rgba(212,168,250,.12);--teal:#68e2c5;--teal-l:rgba(104,226,197,.12);
+ --pink:#ff9bba;--pink-l:rgba(255,155,186,.12);--cyan:#79e8ff;--cyan-l:rgba(121,232,255,.12);
+ --radius:7px;--radius-lg:10px;--radius-xl:14px;--radius-2xl:18px;
+ --shadow:0 6px 22px rgba(0,0,0,.28);--shadow-lg:0 12px 38px rgba(0,0,0,.34);--shadow-xl:0 20px 55px rgba(0,0,0,.45);
+ --glow-blue:0 0 25px rgba(33,185,214,.16);--glow-purple:0 0 25px rgba(212,168,250,.12);
+ --glow-gold:0 0 24px rgba(255,189,69,.2);--glow-green:0 0 24px rgba(143,224,135,.12);
+}
+html,body{font-family:'Rajdhani','DM Sans',sans-serif;letter-spacing:.012em}
+body{background:linear-gradient(145deg,#101b23 0%,#172a30 54%,#0b181e 100%) fixed}
+body::before{background:radial-gradient(ellipse 80% 45% at 50% -5%,rgba(245,154,40,.15),transparent 75%),radial-gradient(ellipse 55% 55% at 100% 80%,rgba(21,135,154,.14),transparent 75%)}
+body::after{background-image:linear-gradient(rgba(248,210,135,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(248,210,135,.025) 1px,transparent 1px);background-size:48px 48px}
+#appScreen header{position:relative;overflow:hidden;border:1px solid rgba(255,187,65,.38);border-radius:16px;background:linear-gradient(110deg,rgba(14,30,36,.97),rgba(25,52,57,.92) 65%,rgba(86,64,36,.9));box-shadow:0 14px 45px rgba(0,0,0,.35),inset 0 3px 0 rgba(255,211,106,.35);padding:24px 26px!important}
+#appScreen header::before{content:'⚔  QUARTIER GÉNÉRAL  /  ALLIANCE COMMAND';display:block;font-size:11px;font-weight:800;letter-spacing:.22em;color:#ffd278;margin-bottom:12px}
+#appScreen header::after{content:'★  LAST WAR • OPÉRATIONS DE L’ALLIANCE  ★';display:block;font-size:10px;font-weight:700;letter-spacing:.12em;color:#e8bc70;margin-top:12px;opacity:.85}
+#appScreen header h1{color:#fff4d2!important;text-shadow:0 2px 15px rgba(255,168,51,.24);font-weight:800!important;letter-spacing:.025em}
+#appScreen header h1 .logo-emoji{filter:drop-shadow(0 0 10px rgba(255,189,69,.5))}
+.login-card{background:linear-gradient(145deg,rgba(21,43,48,.98),rgba(35,48,50,.98));border:2px solid rgba(255,190,77,.4);box-shadow:0 25px 65px rgba(0,0,0,.55),inset 0 4px 0 rgba(255,209,103,.22)}
+.login-card::before{height:5px;background:linear-gradient(90deg,#bb6925,#ffd36a,#e7952e)}
+.login-title{background:linear-gradient(90deg,#fff4d1,#ffd274,#fca944);-webkit-background-clip:text;background-clip:text}
+.login-logo{filter:drop-shadow(0 0 14px rgba(255,190,70,.45))}
+.user-bar{border-color:var(--border2)!important;background:linear-gradient(110deg,rgba(30,53,58,.95),rgba(25,42,49,.95))!important}
+.section,.card,.stat-card,.team-card,.panel,.planning-section{border-color:var(--border2)}
+.section-header,.planning-header{background:linear-gradient(90deg,rgba(255,179,62,.09),rgba(21,150,168,.045));border-bottom-color:var(--border2)}
+.section-title,.planning-title{color:var(--gold)!important;font-weight:800!important;letter-spacing:.035em}
+button,.btn,.login-btn{font-family:inherit;font-weight:800;letter-spacing:.025em}
+.login-btn,button[class*='primary'],.btn-primary{background:linear-gradient(180deg,#ffd572 0%,#f5a92d 100%)!important;color:#30200c!important;border:1px solid #ffdf8d!important;box-shadow:inset 0 2px 0 rgba(255,255,255,.32),0 4px 0 rgba(111,67,23,.6),0 7px 14px rgba(0,0,0,.22)!important}
+.login-btn:hover,button[class*='primary']:hover,.btn-primary:hover{filter:brightness(1.08)}
+input,select,textarea{accent-color:#ffbd45}
+input:focus,select:focus,textarea:focus{outline-color:#ffbd45}
+body.light{--bg:#e1dfcf;--surface:#f4f0df;--surface2:#e9e6d7;--surface3:#dedfd1;--surface4:#d4d7ca;--text:#23343b;--text2:#43585d;--text3:#627378;--text4:#859394;--border:rgba(87,73,44,.12);--border2:rgba(87,73,44,.22);--border3:rgba(87,73,44,.32);--blue:#137e9d;--blue2:#167c99;--amber:#8d5107;--gold:#9c5a09;--green:#247c45;--red:#b53d30;--purple:#7851a4}
+body.light{background:linear-gradient(135deg,#e3e5d8,#d1d7d0) fixed}
+body.light #appScreen header{background:linear-gradient(110deg,#26414a,#36575a 65%,#765b33)}
+body.light #appScreen header h1{color:#fff4d2!important}
+body.light .user-bar{background:linear-gradient(110deg,#e9e6d7,#d9e0d6)!important}
+@media(max-width:650px){#appScreen header{padding:18px 15px!important}#appScreen header::before{font-size:9px;letter-spacing:.12em}#appScreen header::after{font-size:9px;letter-spacing:.03em}}
+
+/* ===== LAST WAR : VERSION IMMERSIVE V2, PRESENTATION UNIQUEMENT ===== */
+:root{--lw-orange:#ffad35;--lw-steel:#1a333b;--lw-line:rgba(255,205,103,.35)}
+#appScreen .page{position:relative}
+#appScreen header{min-height:196px!important;padding:30px 30px 25px!important;background:linear-gradient(90deg,rgba(10,27,35,.98) 0%,rgba(15,39,48,.92) 55%,rgba(25,48,53,.62) 100%),radial-gradient(circle at 88% 65%,rgba(255,167,51,.35),transparent 38%),repeating-linear-gradient(135deg,#233b43 0 14px,#1b303a 14px 28px)!important}
+#appScreen header:before{content:'▰  ALLIANCE COMMAND  /  CENTRE DES OPÉRATIONS  ▰'!important}
+#appScreen header:after{content:'◈  TRAIN  /  TDD  /  CANYON  /  PUISSANCE T1  ◈'!important}
+#appScreen header h1{font-size:clamp(25px,4vw,42px)!important;text-transform:uppercase;letter-spacing:.055em!important;line-height:1.13!important;max-width:780px}
+#appScreen header p{position:relative;z-index:1}
+#appScreen header .logo-emoji{display:inline-block;padding:9px;background:linear-gradient(150deg,#e8a73d,#715020);border:2px solid #ffd36b;border-radius:12px;box-shadow:0 4px 0 #563915,0 0 28px rgba(255,190,60,.32);margin-right:9px}
+#appScreen header:before,#appScreen header:after{position:relative;z-index:1}
+#appScreen header:after{border-top:1px solid rgba(255,215,129,.24);padding-top:10px;max-width:610px}
+#appScreen .section,#appScreen .planning-section{background:linear-gradient(150deg,rgba(27,48,56,.96),rgba(17,34,42,.96));border:1px solid var(--lw-line)!important;box-shadow:inset 0 3px 0 rgba(255,213,123,.08),0 9px 24px rgba(0,0,0,.22);overflow:hidden}
+#appScreen .section-header,#appScreen .planning-header{border-left:5px solid var(--lw-orange);background:linear-gradient(90deg,rgba(255,176,54,.18),rgba(19,47,54,.62))!important;padding-top:15px!important;padding-bottom:15px!important}
+#appScreen .section-title,#appScreen .planning-title{font-size:clamp(17px,2vw,22px)!important;text-transform:uppercase;letter-spacing:.055em!important;text-shadow:0 1px 8px rgba(255,183,72,.13)}
+#appScreen .section-header:hover,#appScreen .planning-header:hover{background:linear-gradient(90deg,rgba(255,176,54,.25),rgba(19,47,54,.68))!important}
+#appScreen .user-bar{border-left:4px solid #ffbb4b!important;border-radius:10px!important;box-shadow:0 8px 22px rgba(0,0,0,.16)}
+#appScreen .user-avatar{background:linear-gradient(135deg,#ffca61,#d78a2a)!important;color:#342512!important;border:2px solid #ffdf92!important}
+#appScreen .stat-card,#appScreen .team-card,#appScreen .card,#appScreen .panel{border:1px solid rgba(255,195,85,.23)!important;background:linear-gradient(155deg,rgba(42,66,71,.95),rgba(25,45,52,.95));box-shadow:0 6px 16px rgba(0,0,0,.16),inset 0 2px 0 rgba(255,224,147,.08)}
+#appScreen .stat-card:hover,#appScreen .team-card:hover{border-color:rgba(255,202,99,.48)!important;box-shadow:0 9px 25px rgba(0,0,0,.25),0 0 15px rgba(255,178,50,.08)}
+#appScreen button:not(:disabled){transition:filter .16s,transform .16s,box-shadow .16s}
+#appScreen button:not(:disabled):hover{filter:brightness(1.12);transform:translateY(-1px)}
+#appScreen button:not(:disabled):active{transform:translateY(1px)}
+#appScreen .btn-primary,#appScreen button[class*='primary']{text-transform:uppercase}
+#appScreen input,#appScreen select,#appScreen textarea{border-color:rgba(255,197,94,.3);border-radius:8px}
+#appScreen input:focus,#appScreen select:focus,#appScreen textarea:focus{box-shadow:0 0 0 3px rgba(255,190,74,.14)}
+#loginScreen{background:radial-gradient(ellipse at 50% 10%,rgba(231,142,42,.18),transparent 55%)}
+#loginScreen .login-card{position:relative;overflow:hidden}
+#loginScreen .login-card:after{content:'◆  ALLIANCE SECURE ACCESS  ◆';display:block;margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,201,94,.18);color:#e5b45e;letter-spacing:.15em;font-size:10px;text-align:center;font-weight:800}
+#loginScreen .login-title{text-transform:uppercase;letter-spacing:.05em}
+#loginScreen .login-logo{background:linear-gradient(145deg,#ffd474,#b97824);border:2px solid #ffdd8b;border-radius:18px;width:84px;height:84px;display:flex;align-items:center;justify-content:center;margin:0 auto 18px;box-shadow:0 6px 0 #78501d,0 14px 30px rgba(0,0,0,.3)}
+body.light #appScreen .section,body.light #appScreen .planning-section{background:linear-gradient(150deg,#f4f0df,#e8e6d7)}
+body.light #appScreen .stat-card,body.light #appScreen .team-card,body.light #appScreen .card,body.light #appScreen .panel{background:linear-gradient(150deg,#faf5e5,#e6e4d7)}
+body.light #appScreen .section-header,body.light #appScreen .planning-header{background:linear-gradient(90deg,rgba(255,176,54,.24),rgba(238,232,208,.8))!important}
+@media(max-width:650px){#appScreen header{min-height:165px!important;padding:19px 14px!important}#appScreen header h1{font-size:clamp(22px,6vw,30px)!important}#appScreen header .logo-emoji{padding:5px;margin-right:4px}#appScreen header:before{font-size:9px!important;letter-spacing:.07em!important}#appScreen header:after{font-size:9px!important;letter-spacing:0!important}#appScreen .section-header,#appScreen .planning-header{padding-top:12px!important;padding-bottom:12px!important}}
+@media(prefers-reduced-motion:reduce){#appScreen button{transition:none!important}}
+/* ===== FIN VERSION IMMERSIVE V2 ===== */
+
+/* ===== FIN DU THEME TEST ===== */
+
+
+/* === V3 : QG tactique illustré, 100% CSS, sans dépendance image === */
+:root{--lw-orange:#ff9c2d;--lw-cream:#fff1c8;--lw-cyan:#42d3e9}
+#appScreen header{min-height:235px;isolation:isolate;padding:30px 32px!important;background:radial-gradient(ellipse at 77% 34%,rgba(255,169,52,.30),transparent 33%),linear-gradient(108deg,#102b38 0%,#173b46 52%,#6d4b29 100%);border:2px solid #c78e41;box-shadow:0 15px 0 -10px #0a161a,0 28px 55px rgba(0,0,0,.4),inset 0 0 0 3px rgba(255,234,167,.08)}
+#appScreen header::before{position:relative;z-index:3;display:inline-block;padding:7px 12px;background:rgba(5,22,28,.76);border:1px solid rgba(255,207,117,.42);border-left:4px solid #ffb344;letter-spacing:.16em}
+#appScreen header::after{position:relative;z-index:3;width:max-content;max-width:100%;padding:7px 10px;background:rgba(5,22,28,.72);border:1px solid rgba(255,205,110,.18);border-radius:3px}
+#appScreen header h1{position:relative;z-index:3;max-width:76%;font-size:clamp(27px,4vw,47px)!important;line-height:1.12!important;text-transform:uppercase;filter:drop-shadow(0 4px 3px #09202c)}
+#appScreen header p{position:relative;z-index:3;display:flex;align-items:center;gap:7px;flex-wrap:wrap;width:max-content;max-width:75%;padding:6px 10px;background:rgba(7,23,29,.78);border-radius:4px;border:1px solid rgba(255,211,128,.22)}
+#appScreen header .logo-emoji{display:inline-grid;place-items:center;width:58px;height:58px;border:2px solid #f7c66d;border-radius:14px;background:linear-gradient(145deg,#263e43,#14282e);box-shadow:0 5px 0 #0a1619,0 0 25px rgba(255,184,62,.28);font-size:36px;vertical-align:middle;margin-right:10px}
+/* Stylised fortress silhouette, antenna, spotlights and terrain */
+#appScreen header .lw-scene{position:absolute;z-index:1;right:0;bottom:0;width:57%;height:100%;pointer-events:none;overflow:hidden;background:radial-gradient(circle at 72% 23%,rgba(255,224,147,.72) 0 5%,rgba(255,164,50,.22) 12%,transparent 31%),linear-gradient(155deg,transparent 45%,rgba(5,19,26,.42) 46% 50%,transparent 51%)}
+#appScreen header .lw-scene::before{content:'';position:absolute;right:0;bottom:-4px;width:100%;height:76%;background:linear-gradient(0deg,#0a1a20,#173b43 80%);clip-path:polygon(0 95%,9% 78%,19% 79%,19% 66%,25% 66%,25% 43%,31% 43%,31% 62%,40% 62%,40% 29%,44% 29%,44% 17%,46% 17%,46% 0,47% 17%,50% 17%,50% 29%,55% 29%,55% 61%,61% 61%,61% 38%,68% 38%,68% 53%,76% 53%,76% 66%,85% 66%,85% 76%,93% 75%,100% 89%,100% 100%,0 100%);filter:drop-shadow(0 -3px 2px #e8a454)}
+#appScreen header .lw-scene::after{content:'◈   SECTEUR NA1N    /    BASE ACTIVE';position:absolute;bottom:12px;right:18px;color:#ffd88c;letter-spacing:.17em;font-size:10px;font-weight:800;text-shadow:0 2px 5px #06131b}
+#appScreen header .lw-signal{position:absolute;z-index:2;right:13%;top:18%;width:85px;height:85px;border:1px solid rgba(255,220,144,.38);border-radius:50%;box-shadow:0 0 0 20px rgba(255,218,136,.05),0 0 0 43px rgba(255,218,136,.035)}
+#appScreen header .lw-signal::before,#appScreen header .lw-signal::after{content:'';position:absolute;background:rgba(255,225,160,.4)}
+#appScreen header .lw-signal::before{width:1px;height:130px;left:50%;top:-23px}#appScreen header .lw-signal::after{height:1px;width:130px;top:50%;left:-23px}
+.section,.planning-section,.card,.stat-card,.team-card,.panel{position:relative;box-shadow:0 8px 24px rgba(0,0,0,.21),inset 0 1px 0 rgba(255,220,139,.06);border:1px solid rgba(230,174,84,.24)!important}
+.section::before,.planning-section::before{content:'';position:absolute;z-index:1;top:0;left:14px;width:56px;height:3px;background:linear-gradient(90deg,#ffb744,#ffe5a4);box-shadow:0 0 13px rgba(255,177,54,.5);pointer-events:none}
+.section-header,.planning-header{background:linear-gradient(100deg,rgba(243,154,41,.19),rgba(13,48,57,.75) 65%,rgba(39,89,96,.32))!important;min-height:56px}
+.section-title,.planning-title{font-family:Rajdhani,'DM Sans',sans-serif!important;font-size:clamp(17px,2.2vw,22px)!important;text-shadow:0 2px 8px rgba(0,0,0,.35);text-transform:uppercase}
+.section-toggle{color:#ffcd79!important}
+.user-bar{border:1px solid rgba(255,195,88,.28)!important;border-left:4px solid #f3aa38!important;box-shadow:0 6px 16px rgba(0,0,0,.18)}
+.user-avatar{border:2px solid #d9a44f!important;box-shadow:0 0 0 3px rgba(255,179,64,.1)}
+button:not(:disabled),.btn:not(:disabled){transition:filter .18s ease,transform .18s ease,box-shadow .18s ease}
+button:not(:disabled):hover,.btn:not(:disabled):hover{filter:brightness(1.12);transform:translateY(-1px)}
+button:not(:disabled):active,.btn:not(:disabled):active{transform:translateY(1px)}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #ffcb70;outline-offset:2px}
+.login-card{position:relative;overflow:hidden;border:2px solid #c99145!important;background:radial-gradient(ellipse at 50% 0,rgba(238,161,53,.13),transparent 56%),linear-gradient(145deg,#182f37,#10232b)!important}
+.login-card::after{content:'◆  ACCÈS AU QUARTIER GÉNÉRAL  ◆';display:block;margin-top:18px;padding-top:13px;border-top:1px solid rgba(255,204,119,.24);text-align:center;color:#eac47d;letter-spacing:.16em;font-size:10px;font-weight:800}
+.login-logo{display:grid;place-items:center;margin-inline:auto;width:84px;height:84px;background:linear-gradient(145deg,#394e48,#142c33);border:2px solid #ffc76a;border-radius:19px;box-shadow:0 8px 0 #0c1b20,0 0 30px rgba(255,180,61,.18)}
+.login-title{font-family:Rajdhani,'DM Sans',sans-serif;font-weight:800!important;text-transform:uppercase}
+body.light #appScreen header{color:#fff4d2}body.light #appScreen header h1{color:#fff4d2!important}body.light #appScreen header p{color:#f7e8c6}
+@media(max-width:700px){#appScreen header{min-height:205px;padding:19px 17px!important}#appScreen header h1{max-width:100%;font-size:clamp(23px,6vw,33px)!important}#appScreen header p{max-width:100%}#appScreen header .lw-scene{width:85%;opacity:.47}#appScreen header .lw-signal{right:8%;top:20%}#appScreen header::before{font-size:9px;letter-spacing:.08em}#appScreen header::after{font-size:9px;letter-spacing:.03em}#appScreen header .logo-emoji{width:44px;height:44px;font-size:27px}}
+@media(prefers-reduced-motion:reduce){button,.btn{transition:none!important}}
+
+
+/* Lisibilité des graphiques — panneaux souples, grands libellés et mobile */
+.lw-stats-chart-layout{display:grid;grid-template-columns:minmax(220px,255px) minmax(0,1fr);gap:18px;align-items:start}
+.lw-stats-chart-controls{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:18px;display:flex;flex-direction:column;gap:14px;position:sticky;top:8px}
+.lw-stats-chart-display{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:20px;min-height:420px;min-width:0;overflow:hidden}
+.lw-stats-chart-title{font-size:18px;font-weight:800;color:var(--text);margin-bottom:5px;line-height:1.35}
+.lw-stats-chart-summary{font-size:12px;color:var(--text2);margin-bottom:18px}
+#chartBuilderCanvas{max-width:100%;height:auto}
+@media(max-width:850px){.lw-stats-chart-layout{grid-template-columns:minmax(0,1fr)}.lw-stats-chart-controls{position:static}.lw-stats-chart-display{padding:12px}.lw-stats-chart-title{font-size:16px}}
 </style>
 <body>
 
@@ -877,6 +1006,7 @@ body.light .poll-page{box-shadow:0 15px 45px rgba(0,0,0,.16)!important}
 <div class="page">
 
   <header>
+    <div class="lw-scene" aria-hidden="true"><div class="lw-signal"></div></div>
     <h1><span class="logo-emoji">🚂</span> bienvenue chez <span data-alliance-name>NA1N</span></h1>
     <p>
       <span class="status-dot" id="statusDot"></span>
@@ -3904,10 +4034,10 @@ const CHART_COLORS = [
 let _chartBuilderState = {
   xAxis:    'players',
   yAxis:    'power_t1',
-  chartType:'bar',
+  chartType:'hbar',
   filter:   'all',
   sortBy:   'desc',
-  topN:     0,       // 0 = tous, sinon limite N
+  topN:     15,      // 15 joueurs par défaut pour garder des libellés lisibles
   groupSim: false,   // regrouper les valeurs similaires
   simPct:   1,       // seuil de similitude en %
   chartInst: null,
@@ -4033,10 +4163,10 @@ function renderStatsGraphiques(){
   const compatTypes = CHART_TYPES;
 
   el.innerHTML = `
-    <div style="display:grid;grid-template-columns:260px 1fr;gap:16px;align-items:start">
+    <div class="lw-stats-chart-layout">
 
       <!-- Panneau de configuration -->
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:16px;display:flex;flex-direction:column;gap:14px;position:sticky;top:8px">
+      <div class="lw-stats-chart-controls">
 
         <!-- Type de graphique -->
         <div>
@@ -4092,6 +4222,12 @@ function renderStatsGraphiques(){
             <option value="10" ${_chartBuilderState.topN===10?'selected':''}>Top 10</option>
             <option value="15" ${_chartBuilderState.topN===15?'selected':''}>Top 15</option>
             <option value="20" ${_chartBuilderState.topN===20?'selected':''}>Top 20</option>
+            <option value="25" ${_chartBuilderState.topN===25?'selected':''}>Top 25</option>
+            <option value="30" ${_chartBuilderState.topN===30?'selected':''}>Top 30</option>
+            <option value="40" ${_chartBuilderState.topN===40?'selected':''}>Top 40</option>
+            <option value="50" ${_chartBuilderState.topN===50?'selected':''}>Top 50</option>
+            <option value="75" ${_chartBuilderState.topN===75?'selected':''}>Top 75</option>
+            <option value="100" ${_chartBuilderState.topN===100?'selected':''}>Top 100</option>
           </select>
         </div>
 
@@ -4115,8 +4251,8 @@ function renderStatsGraphiques(){
       </div>
 
       <!-- Zone graphique -->
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:20px;min-height:400px">
-        <div id="chartBuilderTitle" style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:16px"></div>
+      <div class="lw-stats-chart-display">
+        <div id="chartBuilderTitle" class="lw-stats-chart-title"></div><div id="chartBuilderSummary" class="lw-stats-chart-summary"></div>
         <canvas id="chartBuilderCanvas" height="360" style="width:100%;display:block"></canvas>
         <div id="chartBuilderEmpty" style="display:none;text-align:center;padding:60px 20px;color:var(--text3);font-size:13px">Aucune donnée disponible pour cette sélection.</div>
       </div>
@@ -4144,6 +4280,8 @@ function drawBuilderChart(TEXT, TEXT2, GRID, BG){
   const yDef = CHART_AXES.y.find(a=>a.key===s.yAxis);
   const xDef = CHART_AXES.x.find(a=>a.key===s.xAxis);
   if(titleEl) titleEl.textContent = `${yDef?.label||''} par ${xDef?.label||''}`;
+  const summaryEl=document.getElementById('chartBuilderSummary');
+  if(summaryEl) summaryEl.textContent=`${data.labels.length} joueur(s) affiché(s) · ${s.chartType==='hbar'?'Barres horizontales':'Barres verticales'} · ${s.topN===0?'Tous les joueurs':'Top '+s.topN}`;
 
   if(!data.values.length){
     canvas.style.display='none';
@@ -4155,7 +4293,8 @@ function drawBuilderChart(TEXT, TEXT2, GRID, BG){
 
   const ctx = canvas.getContext('2d');
   const W = canvas.offsetWidth||600;
-  const H = canvas.height;
+  const H = s.chartType==='hbar' ? Math.max(360, data.labels.length*36+28) : 420;
+  canvas.height = H;
   canvas.width = W;
   ctx.clearRect(0,0,W,H);
 
@@ -4209,9 +4348,9 @@ function drawChartBar(ctx,data,W,H,TEXT,TEXT2,GRID){
 
 // ── Rendu Barres horizontales ─────────────────────────────────────────────
 function drawChartHBar(ctx,data,W,H,TEXT,TEXT2,GRID){
-  const labelW=110, PAD={top:8,right:50,bottom:8,left:labelW};
+  const labelW=Math.min(185,Math.max(112,W*0.29)), PAD={top:14,right:76,bottom:14,left:labelW};
   const gW=W-PAD.left-PAD.right;
-  const rowH=Math.min((H-PAD.top-PAD.bottom)/data.labels.length,28);
+  const rowH=(H-PAD.top-PAD.bottom)/data.labels.length;
   const barH=rowH*0.55;
   const maxV=Math.max(...data.values,1);
 
@@ -4220,8 +4359,9 @@ function drawChartHBar(ctx,data,W,H,TEXT,TEXT2,GRID){
     const y=PAD.top+i*rowH+rowH/2;
     const bw=Math.max(2,(val/maxV)*gW);
     const color=data.colors[i]||CHART_COLORS[i%CHART_COLORS.length];
-    ctx.font='11px sans-serif';ctx.fillStyle=TEXT;ctx.textAlign='right';
-    ctx.fillText(lbl.length>15?lbl.slice(0,14)+'…':lbl,labelW-6,y+4);
+    ctx.font='12px sans-serif';ctx.fillStyle=TEXT;ctx.textAlign='right';
+    let name=lbl; while(ctx.measureText(name).width>labelW-14 && name.length>3) name=name.slice(0,-2)+'…';
+    ctx.fillText(name,labelW-9,y+4);
     // Fond
     ctx.fillStyle=GRID;
     ctx.beginPath();if(ctx.roundRect)ctx.roundRect(PAD.left,y-barH/2,gW,barH,3);
@@ -4231,8 +4371,8 @@ function drawChartHBar(ctx,data,W,H,TEXT,TEXT2,GRID){
     ctx.beginPath();if(ctx.roundRect)ctx.roundRect(PAD.left,y-barH/2,bw,barH,3);
     else ctx.rect(PAD.left,y-barH/2,bw,barH);ctx.fill();
     // Valeur
-    ctx.font='10px sans-serif';ctx.fillStyle=TEXT2;ctx.textAlign='left';
-    ctx.fillText(val>=1e6?(val/1e6).toFixed(1)+'M':val>=1e3?(val/1e3).toFixed(0)+'k':val,PAD.left+gW+4,y+4);
+    ctx.font='bold 12px sans-serif';ctx.fillStyle=TEXT;ctx.textAlign='left';
+    ctx.fillText(val>=1e6?(val/1e6).toFixed(2)+'M':val>=1e3?(val/1e3).toFixed(1)+'k':val,PAD.left+gW+8,y+4);
   });
 }
 
@@ -6008,7 +6148,7 @@ function copyT1Link(){
 
 
 <!-- ══ SONDAGE PUISSANCE T1 ══ -->
-<div id="t1PollOverlay"><div class="poll-language" style="display:flex;justify-content:flex-end;gap:6px;padding:10px 14px 0"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button></div>
+<div id="t1PollOverlay"><div class="poll-language" style="display:flex;justify-content:flex-end;gap:6px;padding:10px 14px 0"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button><button type="button" class="lang-es" onclick="setPollLanguage('es')">🇪🇸 Español</button></div>
   <div class="poll-page">
     <div class="poll-logo">⚡</div><div class="poll-guild">Les Nains de Mithril</div>
     <div class="poll-title">Recensement Puissance T1</div><div class="poll-subtitle">Pour déclarer ta puissance T1, ajoute une capture d’écran de ton équipe. La puissance sera reconnue automatiquement. Une seule déclaration par joueur et par recensement.</div><div id="t1RoundLabel" class="t1-help">Chargement du recensement…</div>
@@ -6081,7 +6221,7 @@ function copyT1Link(){
     </div>
   </div>
 </div>
-<div id="canyonPollOverlay" style="display:none"><div class="poll-language" style="display:flex;justify-content:flex-end;gap:6px;padding:10px 14px 0"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button></div>
+<div id="canyonPollOverlay" style="display:none"><div class="poll-language" style="display:flex;justify-content:flex-end;gap:6px;padding:10px 14px 0"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button><button type="button" class="lang-es" onclick="setPollLanguage('es')">🇪🇸 Español</button></div>
   <div class="poll-page">
     <div class="poll-logo">🏜️</div><div class="poll-guild">Les Nains de Mithril</div>
     <div class="poll-title">Bataille du Canyon</div>
@@ -6109,7 +6249,7 @@ function copyT1Link(){
   </div>
 </div>
 <!-- ══ POLL TDD ══ -->
-<div id="pollOverlay" style="display:none"><div class="poll-language" style="display:flex;justify-content:flex-end;gap:6px;padding:10px 14px 0"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button></div>
+<div id="pollOverlay" style="display:none"><div class="poll-language" style="display:flex;justify-content:flex-end;gap:6px;padding:10px 14px 0"><button type="button" class="lang-fr" onclick="setPollLanguage('fr')">🇫🇷 Français</button><button type="button" class="lang-en" onclick="setPollLanguage('en')">🇬🇧 English</button><button type="button" class="lang-es" onclick="setPollLanguage('es')">🇪🇸 Español</button></div>
   <div class="poll-page">
     <div class="poll-logo">⚔️</div>
     <div class="poll-guild">Les Nains de Mithril</div>
@@ -6214,10 +6354,21 @@ function copyT1Link(){
 <style>
 .poll-language button{background:var(--surface2);color:var(--text2);border:1px solid var(--border2);border-radius:8px;padding:8px 11px;font:600 12px 'DM Sans',sans-serif;cursor:pointer}
 .poll-language button.active{border-color:var(--blue);color:var(--text);background:var(--blue-l)}
+
+/* V6 — Écran de connexion éclairci, ambiance Last War préservée */
+#loginScreen{background:radial-gradient(ellipse at 50% 0%,rgba(255,202,112,.36),transparent 65%),linear-gradient(145deg,#c7dce2 0%,#a9c3cd 52%,#d9d5bd 100%)!important}
+#loginScreen .login-card{background:linear-gradient(155deg,#f9f5e8 0%,#e7edf0 100%)!important;border:2px solid #ba883c!important;box-shadow:0 18px 55px rgba(30,53,65,.28),0 0 0 5px rgba(255,243,208,.35)!important;color:#203641!important}
+#loginScreen .login-title{-webkit-text-fill-color:#243c48!important;background:none!important;color:#243c48!important;text-shadow:none!important}
+#loginScreen .login-sub,#loginScreen .login-field label,#loginScreen .login-team-field label,#loginScreen .login-remember{color:#415967!important}
+#loginScreen .login-inp,#loginScreen .login-team-select{background:#fff!important;border:1.5px solid #98aeb8!important;color:#203641!important;box-shadow:inset 0 1px 3px rgba(0,0,0,.06)}
+#loginScreen .login-inp::placeholder{color:#768994!important}
+#loginScreen .login-inp:focus,#loginScreen .login-team-select:focus{border-color:#bd7b20!important;box-shadow:0 0 0 3px rgba(243,165,52,.24)!important}
+#loginScreen .login-card:after{color:#79551f!important;border-top-color:rgba(142,104,46,.3)!important}
+#loginScreen .login-error{color:#a32121!important}
 </style>
 <script>
 // Traduction locale des trois pages publiques. Les pseudos et les valeurs de puissance ne sont pas traduits.
-let pollLanguage=localStorage.getItem('alliance_poll_language')==='en'?'en':'fr';
+let pollLanguage=['fr','en','es'].includes(localStorage.getItem('alliance_poll_language'))?localStorage.getItem('alliance_poll_language'):'fr';
 const pollTranslations={
 'Recensement Puissance T1':'T1 Power Survey',
 'Pour déclarer ta puissance T1, ajoute une capture d’écran de ton équipe. La puissance sera reconnue automatiquement. Une seule déclaration par joueur et par recensement.':'To report your T1 power, upload a screenshot of your team. Power will be detected automatically. One submission per player per survey.',
@@ -6262,15 +6413,78 @@ const pollTranslations={
 'Tu peux saisir la puissance dans la case, en conservant la capture.':'You can enter your power in the field while keeping the screenshot.',
 'Image JPG, PNG ou WEBP de 5 Mo maximum.':'JPG, PNG or WEBP image, maximum 5 MB.',
 };
+const pollTranslationsEs={
+"Recensement Puissance T1":"Censo de potencia T1",
+"Pour déclarer ta puissance T1, ajoute une capture d’écran de ton équipe. La puissance sera reconnue automatiquement. Une seule déclaration par joueur et par recensement.":"Para declarar tu potencia T1, sube una captura de pantalla de tu equipo. La potencia se detectará automáticamente. Una declaración por jugador y por censo.",
+"Chargement du recensement…":"Cargando censo…",
+"Aucun recensement ouvert. Reviens à la prochaine session.":"No hay ningún censo abierto. Vuelve en la próxima sesión.",
+"Ton pseudo":"Tu nombre de jugador",
+"Chargement…":"Cargando…",
+"Exemple de capture attendue":"Ejemplo de captura esperada",
+"Prends une capture de l’écran de formation de ton équipe T1, avec ":"Haz una captura de la pantalla de formación de tu equipo T1, con ",
+"la puissance totale bien visible en haut":"la potencia total claramente visible arriba",
+" (ici : ":" (aquí: ",
+"). Voici un exemple :":"). Aquí tienes un ejemplo:",
+"L’image sert uniquement d’exemple : ajoute ta propre capture pour déclarer ta puissance.":"Esta imagen es solo un ejemplo: sube tu propia captura para declarar tu potencia.",
+"Ajouter une capture d’écran":"Añadir una captura de pantalla",
+"📷 Choisir une capture de ton équipe T1 (JPG / PNG / WEBP, max 5 Mo)":"📷 Elige una captura de tu equipo T1 (JPG / PNG / WEBP, máx. 5 MB)",
+"Le site remplit automatiquement la puissance détectée. Vérifie-la et corrige-la si nécessaire avant de valider. La capture reste obligatoire.":"El sitio rellena automáticamente la potencia detectada. Compruébala y corrígela si es necesario antes de enviar. La captura es obligatoria.",
+"⚡ Puissance T1 détectée (modifiable)":"⚡ Potencia T1 detectada (editable)",
+"Valeur remplie après lecture de la capture. Tu peux la corriger manuellement (ex. 51.00M).":"Valor obtenido de la captura. Puedes corregirlo manualmente (ej. 51.00M).",
+"✓ Valider ma puissance T1":"✓ Enviar mi potencia T1",
+"Puissance enregistrée !":"¡Potencia guardada!",
+"Ta déclaration est verrouillée. Contacte le staff pour toute correction.":"Tu declaración está bloqueada. Contacta con los responsables para corregirla.",
+"Bataille du Canyon":"Batalla del Cañón",
+"Tempête du Désert":"Tormenta del Desierto",
+"Indique ta disponibilité. Un seul vote par joueur.":"Indica tu disponibilidad. Un voto por jugador.",
+"Indique ta disponibilité pour l’événement. Un seul vote par joueur.":"Indica tu disponibilidad para el evento. Un voto por jugador.",
+"Chargement de la session…":"Cargando sesión…",
+"Qui es-tu ?":"¿Quién eres?",
+"Sélectionne ton pseudo dans la liste":"Selecciona tu nombre en la lista",
+"Ta disponibilité ?":"¿Cuál es tu disponibilidad?",
+"Présent":"Disponible",
+"Remplaçant":"Suplente",
+"Absent":"Ausente",
+"Disponible comme titulaire":"Disponible como titular",
+"Disponible si besoin":"Disponible si hace falta",
+"Indisponible":"No disponible",
+"Je serai là — rôle titulaire":"Asistiré — titular",
+"Je ne serai pas là":"No asistiré",
+"← Changer de pseudo":"← Cambiar nombre de jugador",
+"← Changer de nom":"← Cambiar nombre",
+"Ta réponse est verrouillée. Contacte le staff pour une correction.":"Tu respuesta está bloqueada. Contacta con los responsables para corregirla.",
+"Exemple : 51.00M":"Ejemplo: 51.00M",
+"Recherche ton nom…":"Busca tu nombre…",
+"Exemple de capture d’écran Last War attendue : écran de formation avec la puissance totale 23.22M visible en haut":"Ejemplo de captura de Last War: pantalla de formación con la potencia total 23.22M visible arriba",
+"Aperçu de la capture":"Vista previa de la captura",
+"Aucun sondage ouvert.":"No hay ninguna encuesta abierta.",
+"Ce sondage est clôturé.":"Esta encuesta está cerrada.",
+"La session est clôturée.":"La sesión está cerrada.",
+"Choisis une capture d’écran.":"Elige una captura de pantalla.",
+"Chargement de la reconnaissance… La première utilisation peut prendre 20 à 40 secondes.":"Cargando reconocimiento de texto… El primer uso puede tardar entre 20 y 40 segundos.",
+"Préparation de la capture…":"Preparando captura…",
+"Puissance détectée : ":"Potencia detectada: ",
+". Vérifie avant de valider.":". Compruébala antes de enviar.",
+"Tu peux saisir la puissance dans la case, en conservant la capture.":"Puedes introducir la potencia en el campo y conservar la captura.",
+"Image JPG, PNG ou WEBP de 5 Mo maximum.":"Imagen JPG, PNG o WEBP de 5 MB como máximo."
+};
 const pollOriginalText=new WeakMap(),pollOriginalAttrs=new WeakMap();
 const pollRoots=()=>['t1PollOverlay','canyonPollOverlay','pollOverlay'].map(id=>document.getElementById(id)).filter(Boolean);
 function translatePollString(source){
  if(pollLanguage==='fr')return source;
  const trimmed=source.trim();if(!trimmed)return source;
- let result=pollTranslations[trimmed];
+ let result=(pollLanguage==='es'?pollTranslationsEs:pollTranslations)[trimmed];
  if(result===undefined){
    result=trimmed;
-   const dynamic=[
+   const dynamic=pollLanguage==='es'?[
+    [/^Puissance détectée : (.+)\. Vérifie avant de valider\.$/,'Potencia detectada: $1. Compruébala antes de enviar.'],
+    [/^Recensement (.+) ouvert$/,'Censo $1 abierto'],
+    [/^Sondage clôturé/i,'Encuesta cerrada'],
+    [/^Sondage ouvert/i,'Encuesta abierta'],
+    [/^Merci pour ta réponse/i,'Gracias por tu respuesta'],
+    [/^Ta réponse a été enregistrée/i,'Tu respuesta se ha guardado'],
+    [/^Puissance (.+) enregistrée/i,'Potencia $1 guardada'],
+   ]:[
     [/^Puissance détectée : (.+)\. Vérifie avant de valider\.$/,'Detected power: $1. Check before submitting.'],
     [/^Recensement (.+) ouvert$/,'Survey $1 is open'],
     [/^Sondage clôturé/i,'Survey closed'],
@@ -6307,7 +6521,7 @@ function applyPollTranslations(){
  });
  document.documentElement.lang=pollLanguage;
 }
-function setPollLanguage(lang){pollLanguage=lang==='en'?'en':'fr';localStorage.setItem('alliance_poll_language',pollLanguage);applyPollTranslations();}
+function setPollLanguage(lang){pollLanguage=['fr','en','es'].includes(lang)?lang:'fr';localStorage.setItem('alliance_poll_language',pollLanguage);applyPollTranslations();}
 window.addEventListener('DOMContentLoaded',()=>{
  applyPollTranslations();
  // Les réponses sont injectées dynamiquement par le code des sondages.
