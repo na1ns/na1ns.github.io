@@ -3,6 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- V16.2 : masquer l’écran de connexion avant le premier affichage des sondages publics. -->
+<script>
+(function(){
+  const mode=new URLSearchParams(window.location.search).get('poll');
+  if(mode==='tdd'||mode==='canyon'||mode==='t1'){
+    document.documentElement.classList.add('public-poll-route');
+  }
+})();
+</script>
+<style>
+html.public-poll-route #loginScreen{display:none!important}
+</style>
 <title>Bienvenue chez NA1N 🚂</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500;600&family=Rajdhani:wght@400;500;600;700&display=swap">
 <script>
@@ -5883,6 +5895,10 @@ async function startApp(){
     document.getElementById('loginBtn').disabled=true;
     return;
   }
+  if(document.documentElement.classList.contains('public-poll-route')){
+    checkPollMode();
+    return;
+  }
   await loadAllianceName();
   if(checkPollMode())return;
   await checkSession();
@@ -6692,6 +6708,12 @@ const pollTranslationsIt={
  "Tu peux saisir la puissance dans la case, en conservant la capture.": "Puoi inserire la potenza nel campo mantenendo lo screenshot.",
  "Image JPG, PNG ou WEBP de 5 Mo maximum.": "Immagine JPG, PNG o WEBP di massimo 5 MB."
 };
+
+// V16.1 — Compléments pour les états dynamiques des sondages publics.
+Object.assign(pollTranslations, {"Aucun joueur disponible trouvé.": "No available player found.", "Tous les joueurs ont répondu.": "All players have responded.", "Tous les joueurs ont répondu": "All players have responded", "❌ Impossible de charger les joueurs.": "❌ Unable to load players.", "Tu as déjà participé à ce recensement. Reviens lors de la prochaine session.": "You have already participated in this survey. Come back for the next session.", "🟢 Sondage en cours — ": "🟢 Survey in progress — ", "🔒 Sondage clos": "🔒 Survey closed", "Aucun recensement ouvert": "No survey open", " enregistrés.": " saved.", "Choisis ton pseudo": "Choose your player name", "Chargement des joueurs…": "Loading players…", "La session est clôturée.": "This session is closed.", "Choisis une capture d’écran.": "Choose a screenshot."});
+Object.assign(pollTranslationsEs, {"Aucun joueur disponible trouvé.": "No se encontró ningún jugador disponible.", "Tous les joueurs ont répondu.": "Todos los jugadores han respondido.", "Tous les joueurs ont répondu": "Todos los jugadores han respondido", "❌ Impossible de charger les joueurs.": "❌ No se pueden cargar los jugadores.", "Tu as déjà participé à ce recensement. Reviens lors de la prochaine session.": "Ya has participado en este censo. Vuelve en la próxima sesión.", "🟢 Sondage en cours — ": "🟢 Encuesta en curso — ", "🔒 Sondage clos": "🔒 Encuesta cerrada", "Aucun recensement ouvert": "No hay ningún censo abierto", " enregistrés.": " registrados.", "Choisis ton pseudo": "Elige tu nombre de jugador", "Chargement des joueurs…": "Cargando jugadores…", "La session est clôturée.": "La sesión está cerrada.", "Choisis une capture d’écran.": "Elige una captura de pantalla."});
+Object.assign(pollTranslationsDe, {"Aucun joueur disponible trouvé.": "Kein verfügbarer Spieler gefunden.", "Tous les joueurs ont répondu.": "Alle Spieler haben geantwortet.", "Tous les joueurs ont répondu": "Alle Spieler haben geantwortet", "❌ Impossible de charger les joueurs.": "❌ Spieler konnten nicht geladen werden.", "Tu as déjà participé à ce recensement. Reviens lors de la prochaine session.": "Du hast bereits an dieser Erfassung teilgenommen. Komm zur nächsten Runde zurück.", "🟢 Sondage en cours — ": "🟢 Umfrage läuft — ", "🔒 Sondage clos": "🔒 Umfrage geschlossen", "Aucun recensement ouvert": "Keine Erfassung geöffnet", " enregistrés.": " gespeichert.", "Choisis ton pseudo": "Wähle deinen Spielernamen", "Chargement des joueurs…": "Spieler werden geladen…", "La session est clôturée.": "Die Sitzung ist geschlossen.", "Choisis une capture d’écran.": "Wähle einen Screenshot."});
+Object.assign(pollTranslationsIt, {"Aucun joueur disponible trouvé.": "Nessun giocatore disponibile trovato.", "Tous les joueurs ont répondu.": "Tutti i giocatori hanno risposto.", "Tous les joueurs ont répondu": "Tutti i giocatori hanno risposto", "❌ Impossible de charger les joueurs.": "❌ Impossibile caricare i giocatori.", "Tu as déjà participé à ce recensement. Reviens lors de la prochaine session.": "Hai già partecipato a questo censimento. Torna alla prossima sessione.", "🟢 Sondage en cours — ": "🟢 Sondaggio in corso — ", "🔒 Sondage clos": "🔒 Sondaggio chiuso", "Aucun recensement ouvert": "Nessun censimento aperto", " enregistrés.": " registrati.", "Choisis ton pseudo": "Scegli il tuo nome giocatore", "Chargement des joueurs…": "Caricamento giocatori…", "La session est clôturée.": "La sessione è chiusa.", "Choisis une capture d’écran.": "Scegli uno screenshot."});
 const pollOriginalText=new WeakMap(),pollOriginalAttrs=new WeakMap();
 const pollRoots=()=>['t1PollOverlay','canyonPollOverlay','pollOverlay'].map(id=>document.getElementById(id)).filter(Boolean);
 function translatePollString(source){
@@ -6740,10 +6762,10 @@ function applyPollTranslations(){
    const original=pollOriginalText.get(node),translated=translatePollString(original);
    if(node.nodeValue!==translated)node.nodeValue=translated;
   }
-  root.querySelectorAll('[placeholder],[alt]').forEach(el=>{
+  root.querySelectorAll('[placeholder],[alt],[title],[aria-label]').forEach(el=>{
    if(!pollOriginalAttrs.has(el))pollOriginalAttrs.set(el,{});
    const originals=pollOriginalAttrs.get(el);
-   for(const attr of ['placeholder','alt'])if(el.hasAttribute(attr)){
+   for(const attr of ['placeholder','alt','title','aria-label'])if(el.hasAttribute(attr)){
     if(!(attr in originals))originals[attr]=el.getAttribute(attr);
     const translated=translatePollString(originals[attr]);if(el.getAttribute(attr)!==translated)el.setAttribute(attr,translated);
    }
