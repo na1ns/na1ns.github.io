@@ -14,6 +14,16 @@
 </script>
 <style>
 html.public-poll-route #loginScreen{display:none!important}
+
+/* V17 — Récompenses de saison (brouillon local staff) */
+#secRewards .rw-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:12px;margin:12px 0}
+#secRewards .rw-panel{padding:14px;border:1px solid var(--border2);border-radius:12px;background:var(--surface2)}
+#secRewards input,#secRewards select,#secRewards textarea{max-width:100%;width:100%;box-sizing:border-box;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:8px;padding:9px}
+#secRewards label{display:block;font-size:12px;color:var(--text2);margin-bottom:5px}
+#secRewards .rw-table{width:100%;border-collapse:collapse;font-size:12px}
+#secRewards .rw-table td,#secRewards .rw-table th{padding:8px;border-bottom:1px solid var(--border);text-align:left}
+#secRewards .rw-actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+#secRewards .rw-note{font-size:12px;color:var(--text2);line-height:1.6}
 </style>
 <title>Bienvenue chez NA1N 🚂</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500;600&family=Rajdhani:wght@400;500;600;700&display=swap">
@@ -1406,6 +1416,26 @@ body.light #appScreen header{color:#fff4d2}body.light #appScreen header h1{color
       </div>
 
     <!-- HISTORIQUE DES SEMAINES -->
+
+  <style>.rw-tactic-selects{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:6px}.rw-tactic-selects select{min-width:0;width:100%}@media(max-width:600px){.rw-tactic-selects{grid-template-columns:1fr}}</style>
+  <!-- V17 : récompenses saison, réservé au staff -->
+  <div class="section" id="secRewards" style="display:none">
+    <div class="section-header" onclick="toggleSection('rewardsBody','rewardsToggle')" style="cursor:pointer">
+      <div class="section-header-left"><span class="section-title">🏆 Récompenses de saison · Staff</span></div>
+      <span class="section-toggle collapsed" id="rewardsToggle">▾</span>
+    </div>
+    <div class="section-body collapsed" id="rewardsBody" style="max-height:0">
+      <p class="rw-note">🔒 Espace staff — version de préparation locale. Les données sont enregistrées uniquement dans ce navigateur, pas dans Supabase. Ne pas utiliser sur un appareil partagé. La reconnaissance automatique des captures d'écran n'est pas encore activée.</p>
+      <div class="rw-grid">
+        <div class="rw-panel"><label for="rwSeason">Saison</label><input id="rwSeason" placeholder="Ex. Saison 5" onchange="rwSave()"></div>
+
+
+      </div>
+      <div class="rw-panel"><strong>Classements et pondérations</strong><div id="rwEvents" class="rw-grid"></div><div class="rw-actions"><button class="btn" onclick="rwAddEvent()">➕ Ajouter un 4e classement</button><button class="btn" onclick="rwResetEvents()">↺ Classements par défaut</button></div><p class="rw-note">Les coefficients sont normalisés automatiquement. Une absence de résultat n'est pas confondue avec un score de zéro : elle est signalée et ne rapporte aucun point pour l'événement.</p></div>
+      <div class="rw-panel" style="margin-top:12px"><strong>📝 Saisie des résultats des joueurs</strong><p class="rw-note">Tous les membres de l'alliance apparaissent automatiquement. Une case vide signifie « résultat non renseigné / absence » ; 0 est un score saisi. Choisissez Chef ou Tacticien directement en face du pseudo. Les autres catégories sont proposées par le calcul hybride, avec corrections possibles.</p><div class="rw-actions"><button class="btn" onclick="rwRenderInput()">↻ Actualiser les joueurs</button><span id="rwInputStatus" class="rw-note"></span></div><div style="overflow-x:auto"><table class="rw-table" style="min-width:680px"><thead id="rwInputHead"></thead><tbody id="rwInputRows"></tbody></table></div><details style="margin-top:14px"><summary style="cursor:pointer;font-weight:600">📥 Import CSV / copier-coller (facultatif)</summary><p class="rw-note">Format : pseudo;score, une ligne par joueur. Un import remplace les scores de l'événement choisi après confirmation.</p><div class="rw-grid"><div><label>Événement</label><select id="rwImportEvent"></select></div><div><label>Fichier CSV ou TXT</label><input type="file" id="rwFile" accept=".csv,.txt,text/csv,text/plain" onchange="rwReadFile(this)"></div></div><label for="rwPaste">Coller les résultats</label><textarea id="rwPaste" rows="5" placeholder="PseudoJoueur;12500&#10;AutreJoueur;9800"></textarea><div class="rw-actions"><button class="btn btn-primary" onclick="rwImport()">📥 Importer / remplacer</button><button class="btn" onclick="rwClearEvent()">Effacer cet événement</button></div><div id="rwImportStatus" class="rw-note" role="status"></div></details></div>
+      <div class="rw-panel" style="margin-top:12px"><div class="rw-actions"><button class="btn btn-primary" onclick="rwRender()">🧮 Calculer la distribution</button><button class="btn" onclick="rwExport()">📤 Export CSV</button><button class="btn" onclick="rwExportBackup()">💾 Sauvegarde JSON</button><button class="btn" onclick="document.getElementById('rwBackupFile').click()">📂 Restaurer JSON</button><input id="rwBackupFile" type="file" accept=".json" style="display:none" onchange="rwRestoreBackup(this)"></div><div id="rwSummary" class="rw-note"></div><div style="overflow-x:auto"><table class="rw-table"><thead><tr><th>Rang</th><th>Pseudo</th><th>Score /100</th><th>Présences</th><th>Attribution</th><th>Correction staff</th></tr></thead><tbody id="rwRows"></tbody></table></div></div>
+    </div>
+  </div>
     <div class="section" id="secArchive">
       <div class="section-header">
         <div class="section-header-left" onclick="toggleSection('archiveSection','archiveToggle')">
@@ -1641,6 +1671,7 @@ const PERM_SECTIONS=[
   {id:'secEvents',      label:'Événements',    icon:'⚔️'},
   {id:'secCanyon',      label:'Canyon',        icon:'🏜️'},
   {id:'secArchive',     label:'Archives',      icon:'📦'},
+  {id:'secRewards',     label:'Récompenses',    icon:'🏆'},
   {id:'aboutSection',   label:'À propos',      icon:'ℹ️'},
 ];
 
@@ -1654,6 +1685,7 @@ let permTableExists=true;
 function canSeeSection(secId){
   if(!currentUser)return false;
   const role=currentUser.role;
+  if(secId==='secRewards')return role==='admin'||role==='staff';
   if(secId==='aboutSection') return role==='admin';
   if(role==='admin')return true;
   const p=role==='staff'?permConfig.staff:permConfig.member;
@@ -2552,6 +2584,7 @@ function showApp(){
   document.getElementById('sectionParticipants').style.display=isAdminOrStaff()?'':'none';
   document.getElementById('sectionStats').style.display=isAdminOrStaff()?'':'none';
   // aboutSection géré via canSeeSection dans PERM_SECTIONS
+  rwInit();
   loadRestorePoints();
   // Bouton tirage visible seulement pour admin/staff
   const drawBtn=document.getElementById('doWeeklyDrawsBtn');
@@ -2757,7 +2790,7 @@ async function _loadAllImpl(){
       sb.from('event_teams').select('*,participants(*)').order('position')
     ]);
     if(pErr||hErr)throw pErr||hErr;
-    participants=pData||[];history=hData||[];weeksHistory=wData||[];
+    participants=pData||[];history=hData||[];weeksHistory=wData||[];if(rwData&&rwAllowed()){rwRefreshPlayerSelects();rwRenderInput();rwRender();}
     // Afficher immédiatement les historiques dès que les données sont chargées.
     // Ainsi, une erreur dans une autre section (TDD, Canyon, etc.) ne peut plus
     // laisser ces deux zones bloquées sur « Chargement… ».
@@ -6805,6 +6838,37 @@ window.addEventListener('DOMContentLoaded',()=>{
  });
  pollRoots().forEach(root=>observer.observe(root,{subtree:true,childList:true,characterData:true}));
 });
+
+// V17 — Brouillon local. Ne contient aucune écriture dans Supabase.
+const RW_KEY='na1n_rewards_v17_local';
+let rwData=null;
+function rwDefault(){return {season:'',chief:'',tacticians:'',events:[{name:'Cristal d’or',weight:40,scores:{}},{name:'Capture',weight:30,scores:{}},{name:'Éliminations',weight:30,scores:{}}],overrides:{}};}
+function rwAllowed(){return typeof isAdminOrStaff==='function'&&isAdminOrStaff();}
+function rwSave(){if(!rwAllowed()||!rwData)return;rwData.season=document.getElementById('rwSeason').value;try{localStorage.setItem(RW_KEY,JSON.stringify(rwData));}catch(e){console.warn('Sauvegarde locale indisponible',e);}}
+function rwInit(){if(!rwAllowed())return;try{rwData=JSON.parse(localStorage.getItem(RW_KEY)||'null');}catch{rwData=null;}if(!rwData||!Array.isArray(rwData.events))rwData=rwDefault();
+ document.getElementById('rwSeason').value=rwData.season||'';rwRefreshPlayerSelects();rwDrawEvents();rwRender();rwRenderInput();}
+// Les rôles sont désormais définis uniquement dans le tableau des joueurs.
+function rwRefreshPlayerSelects(){}
+function rwDrawEvents(){if(!rwAllowed())return;const host=document.getElementById('rwEvents'),sel=document.getElementById('rwImportEvent');host.replaceChildren();sel.replaceChildren();rwData.events.forEach((ev,i)=>{const div=document.createElement('div');div.className='rw-panel';const name=document.createElement('input');name.value=ev.name;name.setAttribute('aria-label','Nom du classement');name.onchange=()=>{ev.name=name.value.trim()||`Classement ${i+1}`;rwSave();rwDrawEvents();rwRender();rwRenderInput();};const lab=document.createElement('label');lab.textContent='Nom de l’événement';div.append(lab,name);const weight=document.createElement('input');weight.type='number';weight.min='0';weight.max='100';weight.value=ev.weight;weight.setAttribute('aria-label','Coefficient');weight.onchange=()=>{ev.weight=Math.max(0,Math.min(100,Number(weight.value)||0));rwSave();rwRender();};const wl=document.createElement('label');wl.textContent='Coefficient';wl.style.marginTop='8px';div.append(wl,weight);const count=document.createElement('p');count.className='rw-note';count.textContent=Object.keys(ev.scores||{}).length+' scores importés';div.append(count);host.append(div);sel.add(new Option(ev.name,String(i)));});}
+function rwAddEvent(){if(!rwAllowed()||rwData.events.length>=4)return;rwData.events.push({name:'Nouveau classement',weight:25,scores:{}});rwSave();rwDrawEvents();rwRender();rwRenderInput();}
+function rwResetEvents(){if(!rwAllowed()||!confirm('Réinitialiser les noms et coefficients ? Les scores importés seront perdus.'))return;rwData.events=rwDefault().events;rwSave();rwDrawEvents();rwRender();rwRenderInput();}
+function rwReadFile(input){const file=input.files?.[0];if(!file)return;if(file.size>2e6){alert('Fichier trop volumineux (2 Mo maximum).');return;}const reader=new FileReader();reader.onload=()=>{document.getElementById('rwPaste').value=String(reader.result||'').replace(/^\uFEFF/,'');};reader.readAsText(file);}
+function rwParse(text){const out={},errors=[];text.split(/\r?\n/).forEach((line,i)=>{line=line.trim();if(!line)return;const parts=line.split(/[;\t]/);if(parts.length<2){const m=line.match(/^(.*?),\s*([\d., ]+)$/);if(m){parts.splice(0,parts.length,m[1],m[2]);}}if(parts.length<2){errors.push(i+1);return;}const name=parts[0].trim();const raw=parts.slice(1).join('').replace(/[\s\u00a0]/g,'').replace(',','.');const score=Number(raw);if(!name||!Number.isFinite(score)||score<0){errors.push(i+1);return;}out[name]=score;});return {out,errors};}
+function rwImport(){if(!rwAllowed())return;const i=Number(document.getElementById('rwImportEvent').value),ev=rwData.events[i];if(!ev)return;const parsed=rwParse(document.getElementById('rwPaste').value);const count=Object.keys(parsed.out).length;if(!count){document.getElementById('rwImportStatus').textContent='Aucun score valide. Utiliser pseudo;score.';return;}if(parsed.errors.length&&!confirm(`${parsed.errors.length} lignes invalides (${parsed.errors.slice(0,12).join(', ')}). Continuer avec ${count} scores ?`))return;if(!confirm(`Remplacer les scores de « ${ev.name} » par ${count} résultats ?`))return;ev.scores=parsed.out;rwSave();rwDrawEvents();rwRender();rwRenderInput();document.getElementById('rwImportStatus').textContent=`${count} scores importés dans ${ev.name}. ${parsed.errors.length} ligne(s) ignorée(s).`;}
+function rwClearEvent(){if(!rwAllowed())return;const ev=rwData.events[Number(document.getElementById('rwImportEvent').value)];if(ev&&confirm(`Effacer les scores de ${ev.name} ?`)){ev.scores={};rwSave();rwDrawEvents();rwRender();rwRenderInput();}}
+function rwRoster(){const unique=new Map();(Array.isArray(participants)?participants:[]).forEach(p=>{const n=String(typeof p==='string'?p:(p.name||'')).trim();if(n)unique.set(n.toLocaleLowerCase(),n);});rwData.events.forEach(e=>Object.keys(e.scores||{}).forEach(n=>{const k=n.trim().toLocaleLowerCase();if(k&&!unique.has(k))unique.set(k,n.trim());}));[rwData.chief,...(rwData.tacticians||'').split(/\r?\n|;/)].forEach(n=>{const k=n.trim().toLocaleLowerCase();if(k&&!unique.has(k))unique.set(k,n.trim());});return [...unique.values()].sort((a,b)=>a.localeCompare(b,'fr',{sensitivity:'base'}));}
+function rwScore(ev,name){const key=name.trim().toLocaleLowerCase();const entry=Object.entries(ev.scores||{}).find(([n])=>n.trim().toLocaleLowerCase()===key);return entry?Number(entry[1]):null;}
+function rwResults(){if(!rwData)return[];const events=rwData.events,weights=events.map(e=>Math.max(0,Number(e.weight)||0)),total=weights.reduce((a,b)=>a+b,0),roster=rwRoster();const points=new Map(roster.map(n=>[n.toLocaleLowerCase(),{name:n,points:Array(events.length).fill(null)}]));events.forEach((ev,i)=>{const entries=roster.map(n=>({name:n,value:rwScore(ev,n)})).filter(x=>x.value!==null&&Number.isFinite(x.value)).sort((a,b)=>b.value-a.value);entries.forEach(({name,value})=>{const rank=entries.findIndex(x=>x.value===value)+1;const percentile=entries.length<=1?100:100*(entries.length-rank)/(entries.length-1);points.get(name.toLocaleLowerCase()).points[i]=percentile;});});return [...points.values()].map(p=>{const attended=p.points.filter(v=>v!==null).length;const perf=total?weights.reduce((sum,w,i)=>sum+w*(p.points[i]??0),0)/total:0;return {...p,attended,score:perf};}).sort((a,b)=>b.score-a.score||a.name.localeCompare(b.name));}
+function rwSetRole(name,role){if(!rwAllowed()||!rwData)return;const key=name.trim().toLocaleLowerCase();const chief=(rwData.chief||'').trim().toLocaleLowerCase(),tacts=(rwData.tacticians||'').split(/\r?\n|;/).map(x=>x.trim()).filter(Boolean);if(role==='chief'&&chief!==key&&rwData.chief){alert('Un chef est déjà désigné. Remettez son rôle sur Automatique avant de choisir un autre chef.');rwRenderInput();return;}if(role==='tactician'&&!tacts.some(n=>n.toLocaleLowerCase()===key)&&tacts.length>=4){alert('Les quatre postes de tacticien sont déjà occupés.');rwRenderInput();return;}if(chief===key)rwData.chief='';rwData.tacticians=tacts.filter(n=>n.toLocaleLowerCase()!==key).join('\n');if(role==='chief')rwData.chief=name;if(role==='tactician')rwData.tacticians=[...rwData.tacticians.split('\n').filter(Boolean),name].join('\n');rwRefreshPlayerSelects();rwSave();rwRenderInput();rwRender();}
+function rwSetScore(name,eventIndex,value){if(!rwAllowed()||!rwData)return;const ev=rwData.events[eventIndex];if(!ev)return;const key=Object.keys(ev.scores||{}).find(n=>n.trim().toLocaleLowerCase()===name.trim().toLocaleLowerCase())||name;if(value.trim()===''){delete ev.scores[key];}else{const score=Number(value.replace(',','.'));if(!Number.isFinite(score)||score<0){alert('Saisir un nombre positif ou laisser la case vide.');rwRenderInput();return;}ev.scores[key]=score;}rwSave();rwRender();}
+function rwRenderInput(){if(!rwAllowed()||!rwData)return;const head=document.getElementById('rwInputHead'),body=document.getElementById('rwInputRows');if(!head||!body)return;head.replaceChildren();body.replaceChildren();const h=document.createElement('tr');['Pseudo',...rwData.events.map(e=>e.name),'Catégorie / rôle'].forEach(t=>{const th=document.createElement('th');th.textContent=t;h.append(th);});head.append(h);const roster=rwRoster(),chief=(rwData.chief||'').trim().toLocaleLowerCase(),tacts=new Set((rwData.tacticians||'').split(/\r?\n|;/).map(x=>x.trim().toLocaleLowerCase()).filter(Boolean));roster.forEach(name=>{const tr=document.createElement('tr'),td=document.createElement('td');td.textContent=name;td.style.fontWeight='600';tr.append(td);rwData.events.forEach((ev,i)=>{const cell=document.createElement('td'),input=document.createElement('input');input.type='number';input.min='0';input.step='any';input.style.minWidth='92px';input.placeholder='—';const val=rwScore(ev,name);input.value=val===null?'':String(val);input.setAttribute('aria-label',ev.name+' — '+name);input.onchange=()=>rwSetScore(name,i,input.value);cell.append(input);tr.append(cell);});const cell=document.createElement('td'),select=document.createElement('select');select.style.minWidth='170px';[['auto','Automatique (classement)'],['chief','👑 Chef d’alliance'],['tactician','🧠 Membre tacticien']].forEach(([v,t])=>select.add(new Option(t,v)));select.value=name.toLocaleLowerCase()===chief?'chief':tacts.has(name.toLocaleLowerCase())?'tactician':'auto';select.onchange=()=>rwSetRole(name,select.value);cell.append(select);tr.append(cell);body.append(tr);});document.getElementById('rwInputStatus').textContent=roster.length+' joueurs affichés · modifications enregistrées localement.';}
+function rwAssignment(p,index,chief,tacticians){const key=p.name.trim().toLocaleLowerCase();if(key===chief)return 'Chef d’alliance';if(tacticians.has(key))return 'Tacticien';const forced=rwData.overrides?.[key];if(forced)return forced;return index<15?'Membre clé':index<45?'Membre élite':index<95?'Membre précieux':'Hors quota';}
+function rwRender(){if(!rwAllowed()||!rwData)return;const rows=document.getElementById('rwRows'),summary=document.getElementById('rwSummary');rows.replaceChildren();const all=rwResults(),chief=(rwData.chief||'').trim().toLocaleLowerCase(),tacticians=new Set((rwData.tacticians||'').split(/\r?\n|;/).map(x=>x.trim().toLocaleLowerCase()).filter(Boolean));tacticians.delete(chief);const eligible=all.filter(p=>p.name.trim().toLocaleLowerCase()!==chief&&!tacticians.has(p.name.trim().toLocaleLowerCase()));const indexed=new Map(eligible.map((p,i)=>[p.name.trim().toLocaleLowerCase(),i]));const ordered=[...all].sort((a,b)=>{const rank=p=>p.name.trim().toLocaleLowerCase()===chief?-2:tacticians.has(p.name.trim().toLocaleLowerCase())?-1:indexed.get(p.name.trim().toLocaleLowerCase())??9999;return rank(a)-rank(b);});const weights=rwData.events.reduce((a,e)=>a+Number(e.weight||0),0);summary.textContent=`${all.length} joueurs avec scores · ${rwData.events.length} classements · ${eligible.length} joueurs classés hors chef/tacticiens · ${weights===0?'⚠️ Coefficients tous nuls · ':''}Chef et tacticiens absents des imports : à vérifier manuellement. Les changements d'attribution ne rééquilibrent pas automatiquement les quotas.`;
+ ordered.forEach((p,i)=>{const key=p.name.trim().toLocaleLowerCase(),tr=document.createElement('tr');const cells=[String(i+1),p.name,p.score.toFixed(1),`${p.attended}/${rwData.events.length}`,rwAssignment(p,indexed.get(key)??9999,chief,tacticians)];cells.forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.append(td);});const td=document.createElement('td');if(key!==chief&&!tacticians.has(key)){const select=document.createElement('select');[['','Auto'],['Membre clé','Clé'],['Membre élite','Élite'],['Membre précieux','Précieux'],['Hors quota','Hors quota']].forEach(([v,label])=>select.add(new Option(label,v)));select.value=rwData.overrides?.[key]||'';select.onchange=()=>{if(select.value){const reason=prompt('Motif de la correction (obligatoire) :');if(!reason?.trim()){select.value=rwData.overrides?.[key]||'';return;}rwData.overrides[key]=select.value;rwData.overrideReasons=rwData.overrideReasons||{};rwData.overrideReasons[key]=reason.trim();}else{delete rwData.overrides[key];if(rwData.overrideReasons)delete rwData.overrideReasons[key];}rwSave();rwRender();};td.append(select);}tr.append(td);rows.append(tr);});}
+function rwDownload(name,content,type){const blob=new Blob([content],{type}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+function rwExport(){if(!rwAllowed()||!rwData)return;const all=rwResults(),chief=(rwData.chief||'').trim().toLocaleLowerCase(),tacticians=new Set((rwData.tacticians||'').split(/\r?\n|;/).map(x=>x.trim().toLocaleLowerCase()).filter(Boolean));const eligible=all.filter(p=>p.name.trim().toLocaleLowerCase()!==chief&&!tacticians.has(p.name.trim().toLocaleLowerCase()));const indexed=new Map(eligible.map((p,i)=>[p.name.trim().toLocaleLowerCase(),i]));const csv=[['Pseudo','Score','Présences','Attribution','Motif correction'].join(';'),...all.map(p=>[p.name,p.score.toFixed(2),p.attended+'/'+rwData.events.length,rwAssignment(p,indexed.get(p.name.trim().toLocaleLowerCase())??9999,chief,tacticians),rwData.overrideReasons?.[p.name.trim().toLocaleLowerCase()]||''].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(';'))].join('\r\n');rwDownload('recompenses_saison.csv','\uFEFF'+csv,'text/csv;charset=utf-8');}
+function rwExportBackup(){if(!rwAllowed()||!rwData)return;rwSave();rwDownload('recompenses_saison_sauvegarde.json',JSON.stringify(rwData,null,2),'application/json');}
+function rwRestoreBackup(input){if(!rwAllowed())return;const file=input.files?.[0];if(!file||file.size>2e6)return;const reader=new FileReader();reader.onload=()=>{try{const data=JSON.parse(reader.result);if(!Array.isArray(data.events)||data.events.length<1||data.events.length>4||data.events.some(e=>typeof e.name!=='string'||!e.scores||typeof e.scores!=='object'))throw Error('Format invalide');if(!confirm('Remplacer le brouillon local par cette sauvegarde ?'))return;rwData={...rwDefault(),...data,overrides:data.overrides||{}};rwSave();rwInit();}catch(e){alert('Sauvegarde JSON invalide.');}};reader.readAsText(file);input.value='';}
 </script>
 </body>
 </html>
