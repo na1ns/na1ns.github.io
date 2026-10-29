@@ -6960,10 +6960,38 @@ function mvSyncDeparturePower(){
  if(Number.isFinite(power)&&power>0){input.value=(power/1e6).toLocaleString('fr-FR',{maximumFractionDigits:4})+' M';input.readOnly=true;input.dataset.autoDeparture='1';hint.textContent='✓ Puissance T1 récupérée depuis la fiche du joueur sur le site.';}
  else{if(input.dataset.autoDeparture==='1')input.value='';input.readOnly=false;delete input.dataset.autoDeparture;hint.textContent='Aucune puissance T1 renseignée pour ce joueur : saisie manuelle possible.';}
 }
-function mvInit(){if(!mvAllowed())return;mvSeason=localStorage.getItem('na1n_mv_season')||'Saison actuelle → Saison suivante';document.getElementById('mvSeason').value=mvSeason;mvTypeChange();if(mvTimer)clearInterval(mvTimer);mvTimer=setInterval(()=>{if(mvAllowed()&&!document.getElementById('secMovements').contains(document.activeElement))mvRefresh(true);},4000);mvRefresh();}
+function mvInit(){if(!mvAllowed())return;mvSeason=localStorage.getItem('na1n_mv_season')||'Saison actuelle → Saison suivante';document.getElementById('mvSeason').value=mvSeason;mvTypeChange();if(mvTimer)clearInterval(mvTimer);mvTimer=setInterval(()=>{if(mvAllowed()&&document.visibilityState==='visible')mvRefresh(true);},4000);mvRefresh();}
 function mvSelectSeason(){mvSeason=document.getElementById('mvSeason').value.trim();if(!mvSeason)return;localStorage.setItem('na1n_mv_season',mvSeason);mvSelectedId=null;mvRefresh();}
-async function mvRefresh(silent=false){if(!mvAllowed()||mvBusy)return;mvBusy=true;try{const r=await mvRpc('list',{season:mvSeason});mvRows=Array.isArray(r?.movements)?r.movements:[];mvNotes=Array.isArray(r?.notes)?r.notes:[];mvRender();if(!document.getElementById('mvNoteModal').hidden)mvRenderNoteModal();if(!silent)mvSetStatus('🟢 Synchronisé avec Supabase');}catch(e){mvSetStatus('🔴 Synchronisation impossible : '+e.message);}finally{mvBusy=false;}}
-async function mvChange(action,payload){try{await mvRpc(action,payload);mvSetStatus('🟢 Modification enregistrée');await mvRefresh();return true;}catch(e){mvSetStatus('🔴 NON ENREGISTRÉ : '+e.message);alert('Modification non enregistrée : '+e.message);return false;}}
+// Recharger les mouvements lorsque l'onglet redevient visible ou la connexion revient.
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&mvAllowed())mvRefresh(true);});
+window.addEventListener('online',()=>{if(mvAllowed())mvRefresh(true);});
+// V17.7 — synchronisation multi-staff, même pendant la saisie d'un formulaire.
+let mvRefreshPending=false,mvWriting=false;
+async function mvRefresh(silent=false){
+ if(!mvAllowed())return;
+ if(mvBusy||mvWriting){mvRefreshPending=true;return;}
+ mvBusy=true;
+ try{
+  const season=mvSeason;
+  const r=await mvRpc('list',{season});
+  if(season!==mvSeason)return;
+  mvRows=Array.isArray(r?.movements)?r.movements:[];
+  mvNotes=Array.isArray(r?.notes)?r.notes:[];
+  mvRender();
+  if(!document.getElementById('mvNoteModal').hidden)mvRenderNoteModal();
+  if(!silent)mvSetStatus('🟢 Synchronisé avec Supabase');
+ }catch(e){mvSetStatus('🔴 Synchronisation impossible : '+e.message);}
+ finally{
+  mvBusy=false;
+  if(mvRefreshPending&&!mvWriting){mvRefreshPending=false;queueMicrotask(()=>mvRefresh(true));}
+ }
+}
+async function mvChange(action,payload){
+ mvWriting=true;
+ try{await mvRpc(action,payload);mvSetStatus('🟢 Modification enregistrée');return true;}
+ catch(e){mvSetStatus('🔴 NON ENREGISTRÉ : '+e.message);alert('Modification non enregistrée : '+e.message);return false;}
+ finally{mvWriting=false;mvRefreshPending=false;await mvRefresh();}
+}
 function mvCancelEdit(){document.getElementById('mvEditId').value='';document.getElementById('mvFormTitle').textContent='Ajouter un mouvement';document.getElementById('mvSaveButton').textContent='➕ Enregistrer le mouvement';document.getElementById('mvCancelEdit').style.display='none';for(const id of ['mvPlayer','mvPlayerDeparture','mvPower','mvServer','mvAlliance'])document.getElementById(id).value='';document.getElementById('mvType').value='recruit';document.getElementById('mvStatus').value='discussion';document.getElementById('mvInitialNote').value='';mvTypeChange();}
 function mvEdit(id){const r=mvRows.find(x=>x.id===id);if(!r)return;document.getElementById('mvEditId').value=r.id;document.getElementById('mvType').value=r.kind;mvTypeChange();document.getElementById('mvPlayer').value=r.player_name;const departureSelect=document.getElementById('mvPlayerDeparture');if(r.kind==='departure'&&!Array.from(departureSelect.options).some(o=>o.value===r.player_name))departureSelect.add(new Option(r.player_name+' (ancien membre)',r.player_name));departureSelect.value=r.player_name;document.getElementById('mvPower').readOnly=false;delete document.getElementById('mvPower').dataset.autoDeparture;document.getElementById('mvPower').value=r.power||'';document.getElementById('mvServer').value=r.server||'';document.getElementById('mvAlliance').value=r.alliance||'';document.getElementById('mvStatus').value=['completed','cancelled'].includes(r.status)?'confirmed':r.status;document.getElementById('mvInitialNote').value='';document.getElementById('mvFormTitle').textContent='Modifier la fiche — '+r.player_name;document.getElementById('mvSaveButton').textContent='💾 Enregistrer les modifications';document.getElementById('mvCancelEdit').style.display='inline-block';document.getElementById('mvFormTitle').scrollIntoView({behavior:'smooth',block:'center'});}
 async function mvAdd(){const editId=document.getElementById('mvEditId').value;const departure=document.getElementById('mvType').value==='departure';if(!editId)mvSyncDeparturePower();if(!mvNormalizePowerInput()){alert('Puissance T1 invalide. Exemple : 51.3, 51,3 ou 51.3M');return;}const name=(departure?document.getElementById('mvPlayerDeparture').value:document.getElementById('mvPlayer').value).trim();if(!name)return alert(departure?'Sélectionner un membre de l’alliance':'Saisir un pseudo');const payload={kind:document.getElementById('mvType').value,player_name:name,power:document.getElementById('mvPower').value.trim(),server:document.getElementById('mvServer').value.trim(),alliance:document.getElementById('mvAlliance').value.trim(),status:document.getElementById('mvStatus').value};const initialNote=document.getElementById('mvInitialNote').value.trim();if(editId)payload.id=editId;else payload.season=mvSeason;if(!editId&&initialNote)payload.initial_note=initialNote;if(await mvChange(editId?'update':'add',payload)){if(editId&&initialNote){const saved=await mvChange('add_note',{movement_id:editId,body:initialNote});if(!saved)return;}mvCancelEdit();}}
