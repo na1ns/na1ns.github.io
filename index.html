@@ -2120,9 +2120,12 @@ async function submitPollVote(response){
       throw error;
     }
     pollResults[pollSelectedId]=response;
-    localStorage.setItem(participationKey('tdd',availabilityState.tdd.id),String(pollSelectedId));
-    // Le trigger Supabase synchronise le rôle TDD ; les équipes déjà équilibrées restent inchangées.
-    showPollConfirm(response,true);
+    try{localStorage.setItem(participationKey('tdd',availabilityState.tdd.id),String(pollSelectedId));}
+    catch(storageError){console.warn('Mémorisation locale TDD impossible :',storageError);}
+    // V18.5 : comme pour T1, fermer le formulaire dès que le vote est confirmé.
+    const tddGate=document.getElementById('pollGate');
+    if(tddGate){tddGate.style.display='block';tddGate.textContent=pollSelectedName+', ton vote est enregistré. Tu as déjà participé à cette session. Reviens à la prochaine ouverture.';}
+    ['pollStep1','pollStep2','pollStep2b','pollStep3'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
   }catch(e){
     console.error('Vote TDD:',e);
     alert('Vote non enregistré : '+(e.message||'Erreur de connexion'));
@@ -2359,10 +2362,12 @@ async function submitCanyonPoll(response){
     syncCanyonRolesFromPoll();
     renderCanyonPlayers();
     updateCanyonPollCounts();
-    localStorage.setItem(participationKey('canyon',availabilityState.canyon.id),String(canyonPollSelected.id));
-    document.getElementById('canyonPollConfirmIcon').textContent=canyonPollIcons[response];
-    document.getElementById('canyonPollConfirmText').textContent=canyonPollSelected.name+' : vote enregistré ('+({present:'Présent',remplacant:'Remplaçant',absent:'Absent'}[response])+').';
-    canyonPollStep(3);
+    try{localStorage.setItem(participationKey('canyon',availabilityState.canyon.id),String(canyonPollSelected.id));}
+    catch(storageError){console.warn('Mémorisation locale Canyon impossible :',storageError);}
+    // V18.5 : comme pour T1, fermer le formulaire dès que le vote est confirmé.
+    const canyonGate=document.getElementById('canyonPollGate');
+    if(canyonGate){canyonGate.style.display='block';canyonGate.textContent=canyonPollSelected.name+' : vote enregistré ('+({present:'Présent',remplacant:'Remplaçant',absent:'Absent'}[response])+'). Tu as déjà participé à cette session. Reviens à la prochaine ouverture.';}
+    ['canyonPollStep1','canyonPollStep2','canyonPollStep3'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
   }catch(e){alert('Vote non enregistré : '+e.message);}
   finally{canyonPollPending=false;document.querySelectorAll('#canyonPollStep2 button.poll-choice').forEach(b=>b.disabled=false);}
 }
