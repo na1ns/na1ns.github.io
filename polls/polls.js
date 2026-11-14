@@ -308,6 +308,7 @@ function startPollStats() {
   }
 
   function scheduleRefresh() {
+    if (document.visibilityState === 'hidden') return;
     window.clearTimeout(refreshTimer);
     refreshTimer = window.setTimeout(refresh, 250);
   }
@@ -324,7 +325,9 @@ function startPollStats() {
       }
     });
 
-  window.setInterval(scheduleRefresh, 30000);
+  window.setInterval(() => {
+    if (document.visibilityState !== 'hidden') scheduleRefresh();
+  }, 30000);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') scheduleRefresh();
   });

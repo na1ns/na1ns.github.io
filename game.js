@@ -645,30 +645,6 @@ async function submitPollVote(response){
   }
 }
 
-function showPollConfirm(response, isNew){
-  const counts = getPollCounts();
-  document.getElementById('pollConfirmIcon').textContent = POLL_ICONS[response];
-  document.getElementById('pollConfirmMsg').textContent = isNew
-    ? (pollSelectedName + ', ta réponse a été enregistrée !')
-    : (pollSelectedName + ', tu as déjà répondu.');
-  document.getElementById('pollConfirmSub').textContent =
-    response === 'present' ? 'Tu es inscrit comme titulaire.' :
-    response === 'remplacant' ? 'Tu es inscrit comme remplaçant.' :
-    'Tu es inscrit comme absent.';
-  document.getElementById('pollConfirmSummary').innerHTML =
-    '<span class="poll-summary-pill present">✅ ' + counts.present + ' présent' + (counts.present>1?'s':'') + '</span>'
-    + '<span class="poll-summary-pill remplacant">🔄 ' + counts.remplacant + ' remplaçant' + (counts.remplacant>1?'s':'') + '</span>'
-    + '<span class="poll-summary-pill absent">❌ ' + counts.absent + ' absent' + (counts.absent>1?'s':'') + '</span>';
-  pollStep(3);
-  // Confirmation visible, puis formulaire bloqué au prochain chargement.
-}
-
-function getPollCounts(){
-  const c = {present:0, remplacant:0, absent:0};
-  Object.values(pollResults).forEach(function(r){ if(c[r] !== undefined) c[r]++; });
-  return c;
-}
-
 function pollStep(n){
   var steps = ['1','2','2b','3'];
   steps.forEach(function(i){
@@ -1031,13 +1007,6 @@ function closeAbsentMenuOnOutsideClick(event){
 }
 
 document.addEventListener('keydown', event=>{if(event.key==='Escape')closeAbsentModal();});
-
-function showAbsentStep(n){ /* étape unique — remplaçant direct */ }
-function absentPrevStep(){ closeAbsentModal(); }
-
-
-
-
 
 function renderReplaceList(list=document.getElementById('replaceList')){
   if(!list) return;
@@ -1421,9 +1390,11 @@ async function _loadAllImpl(){
     // laisser ces deux zones bloquées sur « Chargement… ».
     renderHistFiltered();
     renderArchiveList();
-    await loadTddNonRetenus();
-    await loadTddFairStats();
-    await loadCanyonNonRetenus();
+    await Promise.all([
+      loadTddNonRetenus(),
+      loadTddFairStats(),
+      loadCanyonNonRetenus()
+    ]);
     evRoles={};
     if(erData){
       erData.forEach(r=>{evRoles[r.player_id]=r.role;});
@@ -1490,7 +1461,7 @@ function subscribeRT(){
     }catch(e){console.warn('Synchronisation TDD :',e);}
   }
   // Rattrapage périodique si Supabase Realtime ne transmet pas un changement.
-  setInterval(()=>{if(currentUser)refreshTddSelectionFromVotes();},10000);
+  setInterval(()=>{if(currentUser&&document.visibilityState!=='hidden')refreshTddSelectionFromVotes();},10000);
   sb.channel('tdd_poll_main').on('postgres_changes',{event:'*',schema:'public',table:'tdd_poll'},(payload)=>{
     const r=payload.new||payload.old;
     if(payload.eventType==='DELETE'){if(r)delete pollResults[r.participant_id];}
@@ -1579,12 +1550,6 @@ function getCurrentMonday(){
   const monday=new Date(now);
   monday.setDate(now.getDate()+diff); // ← ne mute pas now
   return toLocalDateString(monday); // ← date locale, pas UTC
-}
-
-function getDateForDayOfWeek(weekStart,dayIndex){
-  const d=new Date(weekStart);
-  d.setDate(d.getDate()+dayIndex);
-  return d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
 }
 
 function formatDateShort(dateStr){
@@ -1729,20 +1694,6 @@ async function draw(presentOnly){
   await Promise.all(ops);setBusy(false);
 }
 
-function openManual(){
-  document.getElementById('manualPlayers').innerHTML=participants.map(p=>`<input type="checkbox" class="manual-player" value="${p.id}" checked style="display:none">`).join('');
-  refreshManualSelects();openModal('manualModal');
-}
-
-function refreshManualSelects(){
-  const checked=[...document.querySelectorAll('.manual-player:checked')].map(el=>parseInt(el.value));
-  const pool=participants.filter(p=>checked.includes(p.id));
-  const opts=pool.map(p=>`<option value="${p.id}">${p.name}${isEligible(p)?' 🏆':''}</option>`).join('');
-  document.getElementById('manDrv').innerHTML=opts||'<option>— aucun —</option>';
-  document.getElementById('manVip').innerHTML=opts||'<option>— aucun —</option>';
-  if(pool.length>1)document.getElementById('manVip').selectedIndex=1;
-}
-
 async function doManual(){
   const checked=[...document.querySelectorAll('.manual-player:checked')].map(el=>parseInt(el.value));
   if(checked.length<2){toast('Sélectionne au moins 2 joueurs');return;}
@@ -1815,9 +1766,15 @@ async function saveRestorePoint(){
   if(!isAdmin())return;
   const nameInp=document.getElementById('restorePointName');
   const label=(nameInp&&nameInp.value.trim())||('Point du '+new Date().toLocaleString('fr-FR'));
-  const{data:histData}=await sb.from('historique').select('*').order('created_at',{ascending:false});
-  const{data:weeksData}=await sb.from('weeks_history').select('*').order('archived_at',{ascending:false});
-  const{data:drawsData}=await sb.from('weekly_draws').select('*').order('week_start').order('day_index');
+  const[
+    {data:histData},
+    {data:weeksData},
+    {data:drawsData}
+  ]=await Promise.all([
+    sb.from('historique').select('*').order('created_at',{ascending:false}),
+    sb.from('weeks_history').select('*').order('archived_at',{ascending:false}),
+    sb.from('weekly_draws').select('*').order('week_start').order('day_index')
+  ]);
   const snap={
     label,
     participants:participants.map(p=>({...p})),
@@ -2186,10 +2143,38 @@ function copyWeeklyText(){
 }
 
 
-function getPlayerWeeks(p){return weeksHistory.filter(w=>w.participant_name===p.name).sort((a,b)=>new Date(a.archived_at)-new Date(b.archived_at));}
+let playerWeeksIndexSource=null;
+let playerWeeksIndex=new Map();
+function getPlayerWeeks(p){
+  if(playerWeeksIndexSource!==weeksHistory){
+    playerWeeksIndexSource=weeksHistory;
+    playerWeeksIndex=new Map();
+    weeksHistory.forEach(week=>{
+      if(!playerWeeksIndex.has(week.participant_name))playerWeeksIndex.set(week.participant_name,[]);
+      playerWeeksIndex.get(week.participant_name).push(week);
+    });
+    playerWeeksIndex.forEach(weeks=>weeks.sort((a,b)=>new Date(a.archived_at)-new Date(b.archived_at)));
+  }
+  return [...(playerWeeksIndex.get(p.name)||[])];
+}
 function getBestStreak(weeks){let best=0,cur=0;weeks.forEach(w=>{if(w.validated){cur++;best=Math.max(best,cur);}else cur=0;});return best;}
 function getCurrentStreak(weeks){let cur=0;for(let i=weeks.length-1;i>=0;i--){if(weeks[i].validated)cur++;else break;}return cur;}
-function getLastDrawDate(name,role){const f=history.find(h=>role==='driver'?h.driver===name:h.vip===name);return f?new Date(f.created_at):null;}
+let lastDrawIndexSource=null;
+let lastDriverDrawByName=new Map();
+let lastVipDrawByName=new Map();
+function getLastDrawDate(name,role){
+  if(lastDrawIndexSource!==history){
+    lastDrawIndexSource=history;
+    lastDriverDrawByName=new Map();
+    lastVipDrawByName=new Map();
+    history.forEach(draw=>{
+      if(!lastDriverDrawByName.has(draw.driver))lastDriverDrawByName.set(draw.driver,draw.created_at);
+      if(!lastVipDrawByName.has(draw.vip))lastVipDrawByName.set(draw.vip,draw.created_at);
+    });
+  }
+  const draws=role==='driver'?lastDriverDrawByName:lastVipDrawByName;
+  return draws.has(name)?new Date(draws.get(name)):null;
+}
 
 
 // ── Mémoire tampon 48h post-archivage ──────────────────────────────────────
@@ -3282,13 +3267,7 @@ async function savePlayerNote(playerId, note){
 
 /* ══ FONCTIONNALITÉS NOUVELLES ══════════════════════════════════════════ */
 
-/* ── Feat 1 : Historique sondage — affiché dans la fiche joueur ── */
-function getPollHistory(playerName){
-  return weeksHistory.filter(w=>w.participant_name===playerName&&w.poll_response)
-    .sort((a,b)=>new Date(b.archived_at)-new Date(a.archived_at));
-}
-
-/* ── Feat 2 : Notes joueur ── */
+/* ── Notes joueur ── */
 async function savePlayerNote(playerId, note){
   if(!isAdminOrStaff()||!sb) return;
   const val = note.trim()||null;
@@ -3296,33 +3275,8 @@ async function savePlayerNote(playerId, note){
   if(!error){ const p=participants.find(x=>x.id===playerId); if(p) p.note=val; }
 }
 
-/* ── Feat 3 : Alerte régression coffres ── */
-function updateRegressionAlert(){
-  const banner = document.getElementById('alertRegressionBanner');
-  const list   = document.getElementById('alertRegressionList');
-  if(!banner||!list) return;
-  const regressing = participants.filter(p=>{
-    const w = getPlayerWeeks(p);
-    if(w.length < 2) return false;
-    const last2 = w.slice(-2);
-    return !last2[0].validated && !last2[1].validated; // 2 semaines consécutives sans valider
-  });
-  if(!regressing.length){ banner.style.display='none'; return; }
-  banner.style.display='';
-  list.innerHTML = regressing.map(p=>`
-    <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 10px;background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.2);border-radius:99px;color:#FF6B6B;font-weight:700">
-      ${p.is_priority?'⭐ ':''} ${p.name}
-    </span>`).join('');
-}
-
-/* ── Feat 4 : Filtres historique + onglet remplacements ── */
+/* ── Filtres historique + onglet remplacements ── */
 let _histFilter = 'all';
-function setHistFilter(filter, btn){
-  _histFilter = filter;
-  document.querySelectorAll('.hist-filter-btn').forEach(b=>b.classList.remove('active'));
-  if(btn) btn.classList.add('active');
-  renderHistFiltered();
-}
 
 function renderHistFiltered(){
   const el = document.getElementById('histList');
@@ -4099,14 +4053,6 @@ async function reorder(ids){
   await Promise.all(ids.map((id,i)=>sb.from('participants').update({position:i}).eq('id',id)));
 }
 
-async function changeScore(id,type,delta){
-  if(busy)return;
-  const p=participants.find(x=>x.id===id);if(!p)return;
-  const field=type==='driver'?'driver_count':'vip_count';
-  const newVal=Math.max(0,(p[field]||0)+delta);
-  setBusy(true);await sb.from('participants').update({[field]:newVal}).eq('id',id);setBusy(false);
-}
-
 async function deleteHistoryEntry(id){
   if(!confirm('Supprimer cette entrée ?'))return;
   const entry=history.find(h=>h.id===id);
@@ -4297,16 +4243,6 @@ async function doImport(){
   }finally{
     setBusy(false);
   }
-}
-
-function togglePresentMode(){
-  presentMode=!presentMode;
-  const btn=document.getElementById('presModeBtn');
-  btn.textContent=presentMode?'☑ Mode présents':'☐ Mode présents';
-  btn.classList.toggle('btn-primary',presentMode);
-  document.getElementById('presBanner').classList.toggle('on',presentMode);
-  if(!presentMode)presentIds.clear();
-  render();updateDrawBtns();
 }
 
 function togglePresent(id){
@@ -4710,7 +4646,6 @@ function buildOneTeam(starters,subs,keepSubs=false){
 }
 
 function teamTotalPower(team){if(!team)return 0;return CATEGORIES.flatMap(c=>team[c.key]||[]).reduce((s,p)=>s+(p.power_t1||0),0);}
-function catPower(arr){return arr.reduce((s,p)=>s+(p.power_t1||0),0);}
 
 let evDragSrcData=null;
 function evDragStart(e,team,catKey,idx){
@@ -4720,8 +4655,6 @@ function evDragStart(e,team,catKey,idx){
   e.dataTransfer.setData('text/plain',team+':'+catKey+':'+(player?player.id:0));
   setTimeout(()=>{const el=document.querySelector(`[data-ev-team="${team}"][data-ev-cat="${catKey}"][data-ev-idx="${idx}"]`);if(el)el.classList.add('dragging-team');},0);
 }
-function evDragOver(e){e.preventDefault();document.querySelectorAll('.ev-team-player').forEach(el=>el.classList.remove('drag-over-team'));}
-
 function evDropZoneOver(event,teamKey,catKey){
   event.preventDefault();
   const cat=evTeams&&evTeams[teamKey]?evTeams[teamKey][catKey]:null;
@@ -4860,11 +4793,6 @@ async function applyTddReplacement(teamKey,catKey,idx,replacementId){
   toast(`${replacement.name} remplace ${current.name} dans ${catKey} — Équipe ${teamKey}`);
 }
 
-function replaceTeamPlayer(teamKey,catKey,idx){
-  const button=event?.currentTarget;
-  if(button)openTddReplaceMenu(event,teamKey,catKey,idx);
-}
-
 async function switchTeam(fromTeam,fromCat,idx){
   if(!evTeams||!evTeams.B)return;const toTeam=fromTeam==='A'?'B':'A';
   const preview=evTeams[fromTeam][fromCat][idx];if(preview&&!tddSlotCompatible(preview.id,toTeam)){toast('Horaire incompatible pour ce joueur');return;}
@@ -4962,14 +4890,12 @@ async function startApp(){
 window.addEventListener('load',()=>{
   window._appReady=true;
   loadTheme();
-  setTimeout(()=>{
-    if(typeof supabase!=='undefined'){
-      window._supabaseReady=true;
-      startApp();
-    }else{
-      document.getElementById('loginError').textContent='Erreur : Supabase non chargé.';
-    }
-  },500);
+  if(typeof supabase!=='undefined'){
+    window._supabaseReady=true;
+    startApp();
+  }else{
+    document.getElementById('loginError').textContent='Erreur : Supabase non chargé.';
+  }
 });
 
 // ══ RECENSEMENT PUISSANCE T1 ══
@@ -5177,7 +5103,7 @@ async function refreshT1ResponseCounter(){
   finally{t1CounterRequestInFlight=false;}
 }
 // Le compteur se rafraîchit même lorsque la publication Realtime n'est pas activée.
-setInterval(()=>{if(currentUser)refreshT1ResponseCounter();},15000);
+setInterval(()=>{if(currentUser&&document.visibilityState!=='hidden')refreshT1ResponseCounter();},15000);
 async function refreshT1PollPanel(){
   document.getElementById('t1ShareLink').value=t1Url();
   if(!isAdminOrStaff()){document.getElementById('t1StaffList').textContent='Seul le staff peut consulter et corriger les déclarations.';return;}
@@ -5243,7 +5169,6 @@ async function t1StaffCloseRound(){
   if(error)throw error;toast('Recensement T1 clôturé.');await loadT1Staff();
  }catch(e){alert('Impossible de clôturer : '+e.message);}
 }
-function t1SafeText(v){return String(v??'');}
 async function loadT1History(){
  const el=document.getElementById('t1HistoryStats');if(!el)return;el.textContent='Chargement de l’historique T1…';
  const [r,v,p]=await Promise.all([sb.from('t1_rounds').select('id,label,opened_at,status').order('opened_at'),sb.from('t1_submissions').select('round_id,participant_id,power'),sb.from('participants').select('id,name').order('name')]);
@@ -5442,7 +5367,7 @@ function rwApplyRemote(response,force=false){if(!response||!response.data)return
 async function rwFetch(force=false){if(!rwAllowed()||rwBusy||rwPending)return;rwBusy=true;try{const result=await rwRpc('read');if(force||Number(result.revision)!==rwLastApplied)rwApplyRemote(result,force);rwLastError='';rwStatus('🟢 Synchronisé · version '+rwRevision);}catch(e){rwLastError=e.message;rwStatus('🔴 Synchronisation impossible : '+e.message);}finally{rwBusy=false;}}
 async function rwPatch(type,payload={}){if(!rwAllowed())return;rwPending++;rwStatus('⏳ Enregistrement partagé…');try{const result=await rwRpc('patch',{type,...payload});rwRevision=Math.max(rwRevision,Number(result.revision||0));rwLastApplied=0;rwLastError='';rwStatus('🟢 Enregistré · version '+rwRevision);rwChannel?.send({type:'broadcast',event:'changed',payload:{revision:rwRevision}}).catch(()=>{});setTimeout(()=>rwFetch(),120);}catch(e){rwLastError=e.message;rwStatus('🔴 NON ENREGISTRÉ : '+e.message);alert('Modification non enregistrée dans Supabase : '+e.message);}finally{rwPending--;}}
 function rwSave(){if(!rwAllowed()||!rwData)return;const season=document.getElementById('rwSeason')?.value||'';rwData.season=season;rwPatch('season',{value:season});}
-function rwInit(){if(!rwAllowed())return;rwData=rwDefault();rwRevision=0;rwLastApplied=0;rwDrawEvents();rwRender();rwRenderInput();if(rwPollTimer)clearInterval(rwPollTimer);if(rwChannel){sb.removeChannel(rwChannel);rwChannel=null;}rwChannel=sb.channel('reward-live-refresh-v1').on('broadcast',{event:'changed'},()=>rwFetch()).subscribe();rwPollTimer=setInterval(()=>{if(rwAllowed())rwFetch();},3000);rwFetch(true);}
+function rwInit(){if(!rwAllowed())return;rwData=rwDefault();rwRevision=0;rwLastApplied=0;rwDrawEvents();rwRender();rwRenderInput();if(rwPollTimer)clearInterval(rwPollTimer);if(rwChannel){sb.removeChannel(rwChannel);rwChannel=null;}rwChannel=sb.channel('reward-live-refresh-v1').on('broadcast',{event:'changed'},()=>rwFetch()).subscribe();rwPollTimer=setInterval(()=>{if(rwAllowed()&&document.visibilityState!=='hidden')rwFetch();},3000);rwFetch(true);}
 function rwRefreshPlayerSelects(){}
 function rwDrawEvents(){if(!rwAllowed())return;const host=document.getElementById('rwEvents'),sel=document.getElementById('rwImportEvent');host.replaceChildren();sel.replaceChildren();rwData.events.forEach((ev,i)=>{const div=document.createElement('div');div.className='rw-panel';const name=document.createElement('input');name.value=ev.name;name.setAttribute('aria-label','Nom du classement');name.onchange=()=>{ev.name=name.value.trim()||`Classement ${i+1}`;rwPatch('event_name',{index:i,value:ev.name});rwDrawEvents();rwRender();rwRenderInput();};const lab=document.createElement('label');lab.textContent='Nom de l’événement';div.append(lab,name);const weight=document.createElement('input');weight.type='number';weight.min='0';weight.max='100';weight.value=ev.weight;weight.setAttribute('aria-label','Coefficient');weight.onchange=()=>{ev.weight=Math.max(0,Math.min(100,Number(weight.value)||0));rwPatch('weight',{index:i,value:ev.weight});rwRender();};const wl=document.createElement('label');wl.textContent='Coefficient';wl.style.marginTop='8px';div.append(wl,weight);const count=document.createElement('p');count.className='rw-note';count.textContent=Object.keys(ev.scores||{}).length+' scores importés';div.append(count);host.append(div);sel.add(new Option(ev.name,String(i)));});}
 function rwAddEvent(){if(!rwAllowed()||rwData.events.length>=4)return;rwData.events.push({name:'Nouveau classement',weight:25,scores:{}});rwPatch('add_event');rwDrawEvents();rwRender();rwRenderInput();}
@@ -5453,7 +5378,47 @@ function rwImport(){if(!rwAllowed())return;const i=Number(document.getElementByI
 function rwClearEvent(){if(!rwAllowed())return;const ev=rwData.events[Number(document.getElementById('rwImportEvent').value)];if(ev&&confirm(`Effacer les scores de ${ev.name} ?`)){ev.scores={};rwPatch('clear_event',{index:Number(document.getElementById('rwImportEvent').value)});rwDrawEvents();rwRender();rwRenderInput();}}
 function rwRoster(){const unique=new Map();(Array.isArray(participants)?participants:[]).forEach(p=>{const n=String(typeof p==='string'?p:(p.name||'')).trim();if(n)unique.set(n.toLocaleLowerCase(),n);});rwData.events.forEach(e=>Object.keys(e.scores||{}).forEach(n=>{const k=n.trim().toLocaleLowerCase();if(k&&!unique.has(k))unique.set(k,n.trim());}));[rwData.chief,...(rwData.tacticians||'').split(/\r?\n|;/)].forEach(n=>{const k=n.trim().toLocaleLowerCase();if(k&&!unique.has(k))unique.set(k,n.trim());});return [...unique.values()].sort((a,b)=>a.localeCompare(b,'fr',{sensitivity:'base'}));}
 function rwScore(ev,name){const key=name.trim().toLocaleLowerCase();const entry=Object.entries(ev.scores||{}).find(([n])=>n.trim().toLocaleLowerCase()===key);return entry?Number(entry[1]):null;}
-function rwResults(){if(!rwData)return[];const events=rwData.events,weights=events.map(e=>Math.max(0,Number(e.weight)||0)),total=weights.reduce((a,b)=>a+b,0),roster=rwRoster();const points=new Map(roster.map(n=>[n.toLocaleLowerCase(),{name:n,points:Array(events.length).fill(null)}]));events.forEach((ev,i)=>{const entries=roster.map(n=>({name:n,value:rwScore(ev,n)})).filter(x=>x.value!==null&&Number.isFinite(x.value)).sort((a,b)=>b.value-a.value);entries.forEach(({name,value})=>{const rank=entries.findIndex(x=>x.value===value)+1;const percentile=entries.length<=1?100:100*(entries.length-rank)/(entries.length-1);points.get(name.toLocaleLowerCase()).points[i]=percentile;});});return [...points.values()].map(p=>{const attended=p.points.filter(v=>v!==null).length;const perf=total?weights.reduce((sum,w,i)=>sum+w*(p.points[i]??0),0)/total:0;return {...p,attended,score:perf};}).sort((a,b)=>b.score-a.score||a.name.localeCompare(b.name));}
+function rwResults(){
+  if(!rwData)return[];
+  const events=rwData.events;
+  const weights=events.map(event=>Math.max(0,Number(event.weight)||0));
+  const total=weights.reduce((a,b)=>a+b,0);
+  const roster=rwRoster();
+  const points=new Map(roster.map(name=>[
+    name.toLocaleLowerCase(),
+    {name,points:Array(events.length).fill(null)}
+  ]));
+
+  events.forEach((event,index)=>{
+    const scoresByName=new Map();
+    Object.entries(event.scores||{}).forEach(([name,score])=>{
+      const key=name.trim().toLocaleLowerCase();
+      if(!scoresByName.has(key))scoresByName.set(key,Number(score));
+    });
+    const entries=roster
+      .filter(name=>scoresByName.has(name.toLocaleLowerCase()))
+      .map(name=>({name,value:scoresByName.get(name.toLocaleLowerCase())}))
+      .filter(entry=>Number.isFinite(entry.value))
+      .sort((a,b)=>b.value-a.value);
+    const rankByValue=new Map();
+    entries.forEach((entry,rank)=>{
+      if(!rankByValue.has(entry.value))rankByValue.set(entry.value,rank+1);
+      const position=rankByValue.get(entry.value);
+      const percentile=entries.length<=1?100:100*(entries.length-position)/(entries.length-1);
+      points.get(entry.name.toLocaleLowerCase()).points[index]=percentile;
+    });
+  });
+
+  return [...points.values()]
+    .map(player=>{
+      const attended=player.points.filter(value=>value!==null).length;
+      const score=total
+        ?weights.reduce((sum,weight,index)=>sum+weight*(player.points[index]??0),0)/total
+        :0;
+      return {...player,attended,score};
+    })
+    .sort((a,b)=>b.score-a.score||a.name.localeCompare(b.name));
+}
 function rwSetRole(name,role){if(!rwAllowed()||!rwData)return;const key=name.trim().toLocaleLowerCase();const chief=(rwData.chief||'').trim().toLocaleLowerCase(),tacts=(rwData.tacticians||'').split(/\r?\n|;/).map(x=>x.trim()).filter(Boolean);if(role==='chief'&&chief!==key&&rwData.chief){alert('Un chef est déjà désigné. Remettez son rôle sur Automatique avant de choisir un autre chef.');rwRenderInput();return;}if(role==='tactician'&&!tacts.some(n=>n.toLocaleLowerCase()===key)&&tacts.length>=4){alert('Les quatre postes de tacticien sont déjà occupés.');rwRenderInput();return;}if(chief===key)rwData.chief='';rwData.tacticians=tacts.filter(n=>n.toLocaleLowerCase()!==key).join('\n');if(role==='chief')rwData.chief=name;if(role==='tactician')rwData.tacticians=[...rwData.tacticians.split('\n').filter(Boolean),name].join('\n');rwRefreshPlayerSelects();rwPatch('role',{name,role});rwRenderInput();rwRender();}
 function rwSetScore(name,eventIndex,value){if(!rwAllowed()||!rwData)return;const ev=rwData.events[eventIndex];if(!ev)return;const key=Object.keys(ev.scores||{}).find(n=>n.trim().toLocaleLowerCase()===name.trim().toLocaleLowerCase())||name;if(value.trim()===''){delete ev.scores[key];}else{const score=Number(value.replace(',','.'));if(!Number.isFinite(score)||score<0){alert('Saisir un nombre positif ou laisser la case vide.');rwRenderInput();return;}ev.scores[key]=score;}rwPatch('score',{name,index:eventIndex,value:value.trim()===''?null:Number(value.replace(',','.'))});rwRender();}
 function rwRenderInput(){if(!rwAllowed()||!rwData)return;const head=document.getElementById('rwInputHead'),body=document.getElementById('rwInputRows');if(!head||!body)return;head.replaceChildren();body.replaceChildren();const h=document.createElement('tr');['Pseudo',...rwData.events.map(e=>e.name),'Catégorie / rôle'].forEach(t=>{const th=document.createElement('th');th.textContent=t;h.append(th);});head.append(h);const roster=rwRoster(),chief=(rwData.chief||'').trim().toLocaleLowerCase(),tacts=new Set((rwData.tacticians||'').split(/\r?\n|;/).map(x=>x.trim().toLocaleLowerCase()).filter(Boolean));roster.forEach(name=>{const tr=document.createElement('tr'),td=document.createElement('td');td.textContent=name;td.style.fontWeight='600';tr.append(td);rwData.events.forEach((ev,i)=>{const cell=document.createElement('td'),input=document.createElement('input');input.type='number';input.min='0';input.step='any';input.style.minWidth='92px';input.placeholder='—';const val=rwScore(ev,name);input.value=val===null?'':String(val);input.setAttribute('aria-label',ev.name+' — '+name);input.onchange=()=>rwSetScore(name,i,input.value);cell.append(input);tr.append(cell);});const cell=document.createElement('td'),select=document.createElement('select');select.style.minWidth='170px';[['auto','Automatique (classement)'],['chief','👑 Chef d’alliance'],['tactician','🧠 Membre tacticien']].forEach(([v,t])=>select.add(new Option(t,v)));select.value=name.toLocaleLowerCase()===chief?'chief':tacts.has(name.toLocaleLowerCase())?'tactician':'auto';select.onchange=()=>rwSetRole(name,select.value);cell.append(select);tr.append(cell);body.append(tr);});document.getElementById('rwInputStatus').textContent=roster.length+' joueurs affichés · données partagées avec le staff.';}
@@ -5499,7 +5464,6 @@ function mvInit(){if(!mvAllowed())return;mvSeason='Registre commun';document.get
 // Synchronisation au retour sur l'onglet et après reconnexion.
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&mvAllowed()&&mvSeason)mvRefresh(true);});
 window.addEventListener('online',()=>{if(mvAllowed()&&mvSeason)mvRefresh(true);});
-function mvSelectSeason(){mvRefresh();} // Registre unique partagé : aucun filtre local par saison
 let mvRefreshPending=false;
 async function mvRefresh(silent=false){
  if(!mvAllowed())return;
