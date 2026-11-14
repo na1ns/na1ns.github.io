@@ -648,7 +648,7 @@ async function submitPollVote(response){
           participant_id:pollSelectedId,
           slot,
           original_slot:slot
-        });
+        },{onConflict:'session_id,participant_id'});
         slotSaveError=error;
         if(!error){
           tddSlotVotes[pollSelectedId]=slot;
@@ -664,7 +664,9 @@ async function submitPollVote(response){
       tddGate.style.display='block';
       tddGate.textContent=slotSaveError
         ?pollSelectedName+', ton vote est enregistré, mais ton horaire n’a pas pu être sauvegardé.'
-        :pollSelectedName+', ton vote est enregistré. Tu as déjà participé à cette session. Reviens à la prochaine ouverture.';
+        :response==='absent'
+          ?pollSelectedName+', ton vote est enregistré. Tu as déjà participé à cette session. Reviens à la prochaine ouverture.'
+          :pollSelectedName+', ton vote et ton horaire ('+(slot==='both'?'midi et soir':slot)+') sont enregistrés. Tu as déjà participé à cette session. Reviens à la prochaine ouverture.';
     }
     ['pollStep1','pollStep2','pollStep2b','pollStep3'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
     if(slotSaveError){
