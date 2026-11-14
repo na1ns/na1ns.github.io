@@ -50,7 +50,7 @@ html body .head{
   text-align:center;
   background:
     linear-gradient(90deg,rgba(7,20,25,.9),rgba(13,31,37,.58) 52%,rgba(7,20,25,.88)),
-    url("../Bataille%20%C3%A9pique%20pour%20la%20derni%C3%A8re%20guerre.png") center top/cover no-repeat;
+    url("../Bataille%20%C3%A9pique%20pour%20la%20derni%C3%A8re%20guerre.webp") center top/cover no-repeat;
 }
 html body .head::after{
   content:'';
@@ -305,7 +305,7 @@ html.light body .head{
   border-bottom-color:var(--lw-border2);
   background:
     linear-gradient(90deg,rgba(244,239,223,.34),rgba(244,239,223,.18) 52%,rgba(244,239,223,.34)),
-    url("../Bataille%20%C3%A9pique%20pour%20la%20derni%C3%A8re%20guerre.png") center top/cover no-repeat;
+    url("../Bataille%20%C3%A9pique%20pour%20la%20derni%C3%A8re%20guerre.webp") center top/cover no-repeat;
 }
 html.light body .lang{
   border-color:var(--lw-border2);

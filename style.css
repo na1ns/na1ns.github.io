@@ -1188,7 +1188,7 @@ body.light #appScreen header{
   min-height:340px !important;
   background-image:
     linear-gradient(90deg,rgba(7,22,32,.82) 0%,rgba(7,22,32,.58) 43%,rgba(7,22,32,.12) 100%),
-    url("Bataille%20%C3%A9pique%20pour%20la%20derni%C3%A8re%20guerre.png") !important;
+    url("Bataille%20%C3%A9pique%20pour%20la%20derni%C3%A8re%20guerre.webp") !important;
   background-size:cover !important;
   background-position:center top !important;
 }
@@ -1559,7 +1559,7 @@ body.light .dashboard-subnav-btn:not(.active){background:linear-gradient(180deg,
   background-color:#142b41;
   background-image:
     linear-gradient(rgba(8,24,36,.04),rgba(8,24,36,.12)),
-    url("Bataille%20%C3%A9pique%20pour%20la%20derni%C3%A8re%20guerre.png") !important;
+    url("Bataille%20%C3%A9pique%20pour%20la%20derni%C3%A8re%20guerre.webp") !important;
   background-size:100% 100%,235% auto !important;
   background-position:center,62% top !important;
   background-repeat:no-repeat !important;
