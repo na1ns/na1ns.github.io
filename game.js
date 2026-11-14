@@ -627,8 +627,7 @@ async function submitPollVote(response){
   pollVotePending=true;
   document.querySelectorAll('.poll-choice').forEach(b=>b.disabled=true);
   try{
-    // INSERT uniquement : la clé primaire et la politique SQL bloquent le second vote.
-    const {error}=await sb.rpc('tdd_submit_with_slot',{p_session_id:availabilityState.tdd.id,p_participant_id:pollSelectedId,p_response:response,p_slot:response==='absent'?null:slot});
+    const {error}=await sb.rpc('availability_submit',{p_kind:'tdd',p_session_id:availabilityState.tdd.id,p_participant_id:pollSelectedId,p_response:response});
     if(error){
       if(error.code==='23505'){
         await loadPollResults();
@@ -641,10 +640,37 @@ async function submitPollVote(response){
     pollResults[pollSelectedId]=response;
     try{localStorage.setItem(participationKey('tdd',availabilityState.tdd.id),String(pollSelectedId));}
     catch(storageError){console.warn('Mémorisation locale TDD impossible :',storageError);}
+    let slotSaveError=null;
+    if(response!=='absent'){
+      try{
+        const {error}=await sb.from('tdd_slot_preferences').upsert({
+          session_id:availabilityState.tdd.id,
+          participant_id:pollSelectedId,
+          slot,
+          original_slot:slot
+        });
+        slotSaveError=error;
+        if(!error){
+          tddSlotVotes[pollSelectedId]=slot;
+          tddSlotOriginal[pollSelectedId]=slot;
+        }
+      }catch(error){
+        slotSaveError=error;
+      }
+    }
     // V18.5 : comme pour T1, fermer le formulaire dès que le vote est confirmé.
     const tddGate=document.getElementById('pollGate');
-    if(tddGate){tddGate.style.display='block';tddGate.textContent=pollSelectedName+', ton vote est enregistré. Tu as déjà participé à cette session. Reviens à la prochaine ouverture.';}
+    if(tddGate){
+      tddGate.style.display='block';
+      tddGate.textContent=slotSaveError
+        ?pollSelectedName+', ton vote est enregistré, mais ton horaire n’a pas pu être sauvegardé.'
+        :pollSelectedName+', ton vote est enregistré. Tu as déjà participé à cette session. Reviens à la prochaine ouverture.';
+    }
     ['pollStep1','pollStep2','pollStep2b','pollStep3'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
+    if(slotSaveError){
+      console.error('Vote TDD enregistré, mais créneau non sauvegardé :',slotSaveError);
+      alert('Ton vote est enregistré, mais ton horaire n’a pas pu être sauvegardé : '+(slotSaveError.message||String(slotSaveError)));
+    }
   }catch(e){
     console.error('Vote TDD:',e);
     alert('Vote non enregistré : '+(e.message||'Erreur de connexion'));
