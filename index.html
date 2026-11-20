@@ -18,6 +18,7 @@
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500;600&family=Rajdhani:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="style.css">
+<script defer src="i18n.js"></script>
 <script
   defer
   src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js"
@@ -88,8 +89,9 @@ function onSupabaseError(){
     </div>
     <div style="display:flex;align-items:center;gap:8px">
       <button class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleTheme()" title="Changer le thème">🌙</button>
+      <button type="button" class="site-language-btn" id="siteLanguageBtn" onclick="toggleSiteLanguage()" title="Passer en anglais" aria-label="Passer en anglais">🇬🇧 EN</button>
       
-      <button class="logout-btn" onclick="doLogout()">⎋ Déconnexion</button>
+      <button class="logout-btn" data-i18n="logout" onclick="doLogout()">⎋ Déconnexion</button>
     </div>
   </div>
 

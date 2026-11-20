@@ -7,7 +7,8 @@ function applyAllianceName(name){
   const cleaned=String(name||'').trim().slice(0,60)||'NA1N';
   allianceDisplayName=cleaned;
   document.querySelectorAll('[data-alliance-name]').forEach(el=>{el.textContent=cleaned;});
-  document.title='Bienvenue chez '+cleaned+' 🚂';
+  const welcome=(typeof getSiteLanguage==='function'&&getSiteLanguage()==='en')?'Welcome to':'Bienvenue chez';
+  document.title=welcome+' '+cleaned+' 🚂';
   const input=document.getElementById('allianceNameInput');if(input)input.value=cleaned;
 }
 async function loadAllianceName(){
@@ -51,24 +52,42 @@ let searchFilter='',sortAlpha=false,statSort='name';
 let currentUser=null;
 let evNbTeams=1,evRoles={},evTeams=null,evDragSrc=null,evTeamsLoaded=false;
 // V18.6 — disponibilités par session et créneaux de chaque équipe.
-let tddSlotVotes={},tddSlotOriginal={},tddTeamSlots={A:'midi',B:'soir'};
+let tddSlotVotes={},tddSlotOriginal={},tddSlotSessionId=null,tddTeamSlots={A:'midi',B:'soir'};
+let tddRoleOverrides={},tddRoleOverrideSessionId=null,tddRoleOverridesReady=false;
 function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function tddSlotLabel(slot){return slot==='midi'?'☀️ Midi':slot==='soir'?'🌙 Soir':slot==='both'?'🔄 Les deux':'⚪ Non renseigné';}
 function tddSlotCompatible(id,teamKey){const slot=tddSlotVotes[id];return !slot||slot==='both'||slot===tddTeamSlots[teamKey];}
+function tddPlayersForTeam(players,teamKey){return players.filter(p=>tddSlotCompatible(p.id,teamKey));}
 async function loadTddSlotVotes(){
- if(!sb||!availabilityState.tdd?.id)return;
- const {data,error}=await sb.from('tdd_slot_preferences').select('participant_id,slot,original_slot').eq('session_id',availabilityState.tdd.id);
- if(error){console.warn('Créneaux TDD : exécuter SQL V18.6',error.message);return;}
+ if(!sb)return false;
+ let sessionId=availabilityState.tdd?.id||null;
+ if(!sessionId){
+  const {data,error}=await sb.from('availability_sessions').select('id').eq('kind','tdd').order('opened_at',{ascending:false}).limit(1);
+  if(error){console.warn('Session des créneaux TDD :',error.message);return false;}
+  sessionId=data?.[0]?.id||null;
+ }
+ if(!sessionId){
+  tddSlotSessionId=null;tddSlotVotes={};tddSlotOriginal={};
+  renderEventPlayers();renderTddSlotStaff();
+  return true;
+ }
+ const {data,error}=await sb.from('tdd_slot_preferences').select('participant_id,slot,original_slot').eq('session_id',sessionId);
+ if(error){console.warn('Créneaux TDD : exécuter SQL V18.6',error.message);return false;}
+ tddSlotSessionId=sessionId;
  tddSlotVotes=Object.fromEntries((data||[]).map(r=>[r.participant_id,r.slot]));
  tddSlotOriginal=Object.fromEntries((data||[]).filter(r=>r.original_slot).map(r=>[r.participant_id,r.original_slot]));
  renderEventPlayers();
  renderTddSlotStaff();
+ return true;
 }
 async function loadTddTeamSlots(){
- if(!sb)return;
+ if(!sb)return false;
  const {data,error}=await sb.from('tdd_team_slots').select('team_key,slot');
- if(!error)(data||[]).forEach(r=>{if(r.team_key==='A'||r.team_key==='B')tddTeamSlots[r.team_key]=r.slot;});
+ if(error){console.warn('Créneaux des équipes TDD :',error.message);return false;}
+ tddTeamSlots={A:'midi',B:'soir'};
+ (data||[]).forEach(r=>{if(r.team_key==='A'||r.team_key==='B')tddTeamSlots[r.team_key]=r.slot;});
  renderTddSlotStaff();
+ return true;
 }
 async function setTddTeamSlot(team,slot){
  if(!isAdminOrStaff()||!['A','B'].includes(team)||!['midi','soir'].includes(slot))return;
@@ -79,11 +98,28 @@ async function setTddTeamSlot(team,slot){
  tddTeamSlots[team]=slot;renderTddSlotStaff();renderEventTeams();
 }
 async function setTddPlayerSlot(id,slot){
- if(!isAdminOrStaff()||!['midi','soir','both'].includes(slot)||!availabilityState.tdd?.id)return;
- const old=tddSlotVotes[id];
- const {error}=await sb.from('tdd_slot_preferences').upsert({session_id:availabilityState.tdd.id,participant_id:id,slot});
- if(error){alert('Modification impossible : '+error.message);renderTddSlotStaff();return;}
- tddSlotVotes[id]=slot;renderTddSlotStaff();renderEventPlayers();renderEventTeams();
+ if(!isAdminOrStaff()||!['midi','soir','both'].includes(slot))return;
+ if((availabilityState.tdd?.id&&availabilityState.tdd.id!==tddSlotSessionId)||!tddSlotSessionId){
+  if(!await loadTddSlotVotes()){alert('Impossible de charger les créneaux de la session TDD.');return;}
+ }
+ const sessionId=availabilityState.tdd?.id||tddSlotSessionId;
+ if(!sessionId){alert('Aucune session TDD à corriger.');return;}
+ try{
+  const hash=await getStaffActionHash();if(!hash)return;
+  const {error}=await sb.rpc('tdd_staff_update_slot_v1',{
+   p_username:currentUser.username,
+   p_account_hash:hash,
+   p_session_id:sessionId,
+   p_participant_id:id,
+   p_slot:slot
+  });
+  if(error)throw error;
+  tddSlotSessionId=sessionId;
+  tddSlotVotes[id]=slot;renderTddSlotStaff();renderEventPlayers();renderEventTeams();
+ }catch(error){
+  alert('Modification impossible : '+(error.message||String(error)));
+  await loadTddSlotVotes();
+ }
 }
 function tddPlayerOriginalBadge(p){
  const original=tddSlotOriginal[p.id];
@@ -123,6 +159,30 @@ function tddBalancedSlots(){
  // Titulaires excédentaires : places de remplaçants, sans dépasser les 10 par équipe.
  assign(starters.filter(p=>!placed.has(p.id)),'subs',TOTAL_SUBS);
  return {A:buildOneTeam(teams.A.starters,teams.A.subs,true),B:buildOneTeam(teams.B.starters,teams.B.subs,true)};
+}
+
+function tddAsymmetricSlotTeams(players){
+ const starterCap=CATEGORIES.filter(c=>c.key!=='SUB').reduce((n,c)=>n+c.size,0);
+ const teamCap=starterCap+TOTAL_SUBS;
+ const nA=Math.min(Math.max(1,evAsymSizeA),players.length-1);
+ const candidates=[
+  ...players.slice(0,nA).slice(0,teamCap).map((player,index)=>({player,preferred:'A',rank:index})),
+  ...players.slice(nA).slice(0,teamCap).map((player,index)=>({player,preferred:'B',rank:nA+index}))
+ ];
+ const teams={A:[],B:[]};
+ const isStrict=player=>['midi','soir'].includes(tddSlotVotes[player.id]);
+ candidates.sort((a,b)=>Number(isStrict(b.player))-Number(isStrict(a.player))||a.rank-b.rank);
+ candidates.forEach(candidate=>{
+  const options=['A','B'].filter(key=>tddSlotCompatible(candidate.player.id,key)&&teams[key].length<teamCap);
+  if(!options.length)return;
+  const team=options.includes(candidate.preferred)?candidate.preferred:options[0];
+  teams[team].push(candidate);
+ });
+ const buildTeam=key=>{
+  const selected=teams[key].sort((a,b)=>a.rank-b.rank).map(entry=>entry.player);
+  return buildOneTeam(selected.slice(0,starterCap),selected.slice(starterCap,teamCap),true);
+ };
+ return {A:buildTeam('A'),B:buildTeam('B')};
 }
 
 let evAsymMode=false;
@@ -525,6 +585,9 @@ let pollParticipants = [];
 let pollResults = {};
 let pollSelectedId = null;
 let pollSelectedName = null;
+let tddPollSessionChannel = null;
+let tddPollVotesChannel = null;
+let pollPageRefreshTimer = null;
 
 function checkPollMode(){
   const params = new URLSearchParams(window.location.search);
@@ -543,9 +606,60 @@ function checkPollMode(){
 
 async function initPollPage(){
   if(!sb){ setTimeout(initPollPage, 200); return; }
-  await fetchAvailabilitySession('tdd');
-  if(!availabilityPublicStatus('tdd'))return;
-  sb.channel('tdd_sessions_public').on('postgres_changes',{event:'*',schema:'public',table:'availability_sessions'},()=>initPollPage()).subscribe();
+  if(!tddPollSessionChannel){
+    tddPollSessionChannel=sb.channel('tdd_sessions_public')
+      .on('postgres_changes',{
+        event:'*',
+        schema:'public',
+        table:'availability_sessions',
+        filter:'kind=eq.tdd'
+      },()=>{
+        window.clearTimeout(pollPageRefreshTimer);
+        pollPageRefreshTimer=window.setTimeout(()=>{
+          pollPageRefreshTimer=null;
+          initPollPage();
+        },150);
+      })
+      .subscribe(status=>{
+        if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){
+          console.error('Mise à jour des sessions TDD indisponible :',status);
+        }
+      });
+  }
+  if(!tddPollVotesChannel){
+    tddPollVotesChannel=sb.channel('tdd_poll_rt')
+      .on('postgres_changes',
+        {event:'*',schema:'public',table:'tdd_poll'},
+        payload=>{
+          const r=payload.new||payload.old;
+          if(payload.eventType==='DELETE'){
+            if(r)delete pollResults[r.participant_id];
+          }else if(r){
+            pollResults[r.participant_id]=r.response;
+          }
+          refreshPollNameBadges();
+          updatePollEvBanner();
+        }
+      )
+      .subscribe(status=>{
+        if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){
+          console.error('Mise à jour des votes TDD indisponible :',status);
+        }
+      });
+  }
+  try{
+    await fetchAvailabilitySession('tdd');
+  }catch(error){
+    console.error('Session du sondage TDD indisponible :',error);
+    const title=document.getElementById('pollSessionLabel');
+    if(title)title.textContent='Impossible de charger la session du sondage.';
+    return;
+  }
+  pollResults={};
+  if(!availabilityPublicStatus('tdd')){
+    renderPollNames('');
+    return;
+  }
   // Charger les participants (critique — erreur bloquante)
   try{
     const pRes = await sb.from('participants').select('id,name').order('name');
@@ -559,28 +673,15 @@ async function initPollPage(){
     return;
   }
   // Charger les votes existants (non critique)
-  try{
-    const pollRes = await sb.from('tdd_poll').select('participant_id,response');
-    if(!pollRes.error)(pollRes.data||[]).forEach(r=>{ pollResults[r.participant_id] = r.response; });
-  }catch(e){
-    console.warn('Poll: erreur chargement votes (non bloquant):', e);
+  const pollRes = await sb.from('tdd_poll').select('participant_id,response');
+  if(pollRes.error){
+    console.warn('Poll: erreur chargement votes (non bloquant):',pollRes.error);
+  }else{
+    (pollRes.data||[]).forEach(r=>{ pollResults[r.participant_id] = r.response; });
   }
   await loadTddSlotVotes();
   // Les pseudos ayant voté ne sont plus proposés, quel que soit l'appareil.
   renderPollNames('');
-  // Temps réel
-  try{
-    sb.channel('tdd_poll_rt').on('postgres_changes',
-      {event:'*', schema:'public', table:'tdd_poll'},
-      (payload)=>{
-        const r = payload.new || payload.old;
-        if(payload.eventType === 'DELETE') { if(r) delete pollResults[r.participant_id]; }
-        else if(r) pollResults[r.participant_id] = r.response;
-        refreshPollNameBadges();
-        updatePollEvBanner();
-      }
-    ).subscribe();
-  }catch(e){}
 }
 
 function filterPollNames(){
@@ -627,7 +728,12 @@ async function submitPollVote(response){
   pollVotePending=true;
   document.querySelectorAll('.poll-choice').forEach(b=>b.disabled=true);
   try{
-    const {error}=await sb.rpc('availability_submit',{p_kind:'tdd',p_session_id:availabilityState.tdd.id,p_participant_id:pollSelectedId,p_response:response});
+    const {error}=await sb.rpc('tdd_availability_submit_v1',{
+      p_session_id:availabilityState.tdd.id,
+      p_participant_id:pollSelectedId,
+      p_response:response,
+      p_slot:slot
+    });
     if(error){
       if(error.code==='23505'){
         await loadPollResults();
@@ -640,39 +746,19 @@ async function submitPollVote(response){
     pollResults[pollSelectedId]=response;
     try{localStorage.setItem(participationKey('tdd',availabilityState.tdd.id),String(pollSelectedId));}
     catch(storageError){console.warn('Mémorisation locale TDD impossible :',storageError);}
-    let slotSaveError=null;
     if(response!=='absent'){
-      try{
-        const {error}=await sb.from('tdd_slot_preferences').upsert({
-          session_id:availabilityState.tdd.id,
-          participant_id:pollSelectedId,
-          slot,
-          original_slot:slot
-        },{onConflict:'session_id,participant_id'});
-        slotSaveError=error;
-        if(!error){
-          tddSlotVotes[pollSelectedId]=slot;
-          tddSlotOriginal[pollSelectedId]=slot;
-        }
-      }catch(error){
-        slotSaveError=error;
-      }
+      tddSlotVotes[pollSelectedId]=slot;
+      tddSlotOriginal[pollSelectedId]=slot;
     }
     // V18.5 : comme pour T1, fermer le formulaire dès que le vote est confirmé.
     const tddGate=document.getElementById('pollGate');
     if(tddGate){
       tddGate.style.display='block';
-      tddGate.textContent=slotSaveError
-        ?pollSelectedName+', ton vote est enregistré, mais ton horaire n’a pas pu être sauvegardé.'
-        :response==='absent'
-          ?pollSelectedName+', ton vote est enregistré. Tu as déjà participé à cette session. Reviens à la prochaine ouverture.'
-          :pollSelectedName+', ton vote et ton horaire ('+(slot==='both'?'midi et soir':slot)+') sont enregistrés. Tu as déjà participé à cette session. Reviens à la prochaine ouverture.';
+      tddGate.textContent=response==='absent'
+        ?pollSelectedName+', ton vote est enregistré. Tu as déjà participé à cette session. Reviens à la prochaine ouverture.'
+        :pollSelectedName+', ton vote et ton horaire ('+(slot==='both'?'midi et soir':slot)+') sont enregistrés. Tu as déjà participé à cette session. Reviens à la prochaine ouverture.';
     }
     ['pollStep1','pollStep2','pollStep2b','pollStep3'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
-    if(slotSaveError){
-      console.error('Vote TDD enregistré, mais créneau non sauvegardé :',slotSaveError);
-      alert('Ton vote est enregistré, mais ton horaire n’a pas pu être sauvegardé : '+(slotSaveError.message||String(slotSaveError)));
-    }
   }catch(e){
     console.error('Vote TDD:',e);
     alert('Vote non enregistré : '+(e.message||'Erreur de connexion'));
@@ -697,11 +783,55 @@ function pollStep(n){
   if(n === '2b') setTimeout(function(){ const inp = document.getElementById('pollPinInp'); if(inp) inp.focus(); }, 100);
 }
 
+async function loadTddRoleOverrides(){
+  const sessionId=availabilityState.tdd?.id;
+  if(!sb||!sessionId){
+    tddRoleOverrides={};tddRoleOverrideSessionId=null;tddRoleOverridesReady=false;
+    return true;
+  }
+  const {data,error}=await sb.from('tdd_role_overrides').select('participant_id,role').eq('session_id',sessionId);
+  if(error){
+    tddRoleOverridesReady=false;
+    console.error('Surcharges de rôles TDD : exécuter tdd-polls-migration.sql',error.message);
+    return false;
+  }
+  tddRoleOverrides=Object.fromEntries((data||[]).map(row=>[row.participant_id,row.role]));
+  tddRoleOverrideSessionId=sessionId;
+  tddRoleOverridesReady=true;
+  return true;
+}
+
+async function saveTddRoleOverrides(entries){
+  const sessionId=availabilityState.tdd?.id;
+  if(!sessionId)return;
+  if(!entries.length)return;
+  const hash=await getStaffActionHash();
+  if(!hash)throw new Error('Reconnecte-toi avec ton compte staff.');
+  const rows=entries.map(({id,role})=>({participant_id:id,role}));
+  const {error}=await sb.rpc('tdd_staff_update_roles_v1',{
+    p_username:currentUser.username,
+    p_account_hash:hash,
+    p_session_id:sessionId,
+    p_entries:rows
+  });
+  if(error)throw error;
+  if(tddRoleOverrideSessionId!==sessionId)tddRoleOverrides={};
+  rows.forEach(row=>{tddRoleOverrides[row.participant_id]=row.role;});
+  tddRoleOverrideSessionId=sessionId;
+  tddRoleOverridesReady=true;
+}
+
 function applyTddPollRolesToEvent(){
   if(!availabilityState.tdd || !currentUser || !participants.length)return;
+  if(!tddRoleOverridesReady||tddRoleOverrideSessionId!==availabilityState.tdd.id)return;
   // La réponse au sondage alimente la présélection TDD : présent = titulaire,
-  // remplaçant = remplaçant, absent/non-répondant = aucun rôle.
-  participants.forEach(p=>{evRoles[p.id]=POLL_ROLE_MAP[pollResults[p.id]]||'none';});
+  // remplaçant = remplaçant, absent/non-répondant = aucun rôle. Une correction staff
+  // enregistrée pour cette session prévaut sur la réponse du joueur.
+  participants.forEach(p=>{
+    evRoles[p.id]=Object.prototype.hasOwnProperty.call(tddRoleOverrides,p.id)
+      ?tddRoleOverrides[p.id]
+      :POLL_ROLE_MAP[pollResults[p.id]]||'none';
+  });
   updateEvBanner();
   renderEventPlayers();
 }
@@ -717,7 +847,7 @@ async function loadPollResults(){
     renderPollStaffTable();
     if(availabilityState.tdd && currentUser){
       await loadTddSlotVotes();
-      applyTddPollRolesToEvent();
+      if(await loadTddRoleOverrides())applyTddPollRolesToEvent();
     }
     renderEventPlayers();
   }catch(e){console.warn('Chargement des réponses TDD :',e);}
@@ -1481,8 +1611,7 @@ async function _loadAllImpl(){
     await fetchAvailabilitySession('tdd');
     await loadTddTeamSlots();
     await loadTddSlotVotes();
-    // Charger les votes avant d'afficher la présélection : au rechargement,
-    // event_roles ne doit pas masquer les réponses du sondage actif.
+    // Charger votes et corrections staff avant d'appliquer les rôles du sondage.
     await loadPollResults();
     applyTddPollRolesToEvent();
     if(canSeeSection('sectionStats'))renderStats();
@@ -1511,7 +1640,7 @@ function subscribeRT(){
       (data||[]).forEach(r=>{pollResults[r.participant_id]=r.response;});
       // Le rôle et le créneau sont deux données distinctes du même vote.
       await loadTddSlotVotes();
-      applyTddPollRolesToEvent();
+      if(await loadTddRoleOverrides())applyTddPollRolesToEvent();
       updatePollEvBanner();renderPollStaffTable();updateEvBanner();
     }catch(e){console.warn('Synchronisation TDD :',e);}
   }
@@ -1555,9 +1684,8 @@ function subscribeRT(){
         if(data.length>0&&data[0].nb_teams){evNbTeams=data[0].nb_teams;document.getElementById('evNb1').classList.toggle('active',evNbTeams===1);document.getElementById('evNb2').classList.toggle('active',evNbTeams===2);}
       }
       initEvRoles();
-      // Une mise à jour event_roles ne doit pas faire disparaître la présélection
-      // issue du sondage TDD toujours ouvert.
-      applyTddPollRolesToEvent();
+      // Recharger les corrections staff avant de réappliquer les rôles du sondage.
+      if(await loadTddRoleOverrides())applyTddPollRolesToEvent();
       renderEventPlayers();updateEvBanner();
     })
     .on('postgres_changes',{event:'*',schema:'public',table:'event_teams'},async()=>{
@@ -4365,15 +4493,37 @@ function initEvRoles(){
 }
 
 async function evSetRole(playerId,role){
+  try{
+    await saveTddRoleOverrides([{id:playerId,role}]);
+  }catch(error){
+    console.error('Surcharge du rôle TDD non enregistrée :',error);
+    alert('Impossible de conserver cette correction pendant le sondage : '+(error.message||String(error))+' Exécute le fichier tdd-polls-migration.sql.');
+    return;
+  }
   evRoles[playerId]=role;
   // Ne pas reset evTeams pour conserver les équipes déjà équilibrées
-  await sb.from('event_roles').upsert({player_id:playerId,role,nb_teams:evNbTeams,updated_at:new Date().toISOString()},{onConflict:'player_id'});
+  const {error}=await sb.from('event_roles').upsert({player_id:playerId,role,nb_teams:evNbTeams,updated_at:new Date().toISOString()},{onConflict:'player_id'});
+  if(error){
+    console.error('Rôle d’événement non enregistré :',error);
+    alert('La correction du sondage est conservée, mais le rôle d’événement n’a pas pu être sauvegardé : '+error.message);
+  }
   updateEvBanner();renderEventPlayers();renderEventTeams();
 }
 
 async function evSelectAll(role){
+  try{
+    await saveTddRoleOverrides(participants.map(p=>({id:p.id,role})));
+  }catch(error){
+    console.error('Surcharges de rôles TDD non enregistrées :',error);
+    alert('Impossible de conserver ces corrections pendant le sondage : '+(error.message||String(error))+' Exécute le fichier tdd-polls-migration.sql.');
+    return;
+  }
   participants.forEach(p=>{evRoles[p.id]=role;});
-  if(participants.length)await Promise.all(participants.map(p=>sb.from('event_roles').upsert({player_id:p.id,role,nb_teams:evNbTeams,updated_at:new Date().toISOString()},{onConflict:'player_id'})));
+  if(participants.length){
+    const results=await Promise.all(participants.map(p=>sb.from('event_roles').upsert({player_id:p.id,role,nb_teams:evNbTeams,updated_at:new Date().toISOString()},{onConflict:'player_id'})));
+    const failed=results.find(result=>result.error);
+    if(failed){console.error('Rôles d’événement non enregistrés :',failed.error);alert('Les rôles ont été mis à jour localement, mais une erreur empêche leur sauvegarde : '+failed.error.message);}
+  }
   // Sélection globale = réinitialiser les équipes (changement massif)
   evTeams=null;
   updateEvBanner();renderEventPlayers();renderEventTeams();
@@ -4381,6 +4531,13 @@ async function evSelectAll(role){
 
 async function resetTeams(){
   if(!confirm('Réinitialiser tous les rôles ET les équipes pour tout le monde ?'))return;
+  try{
+    await saveTddRoleOverrides(participants.map(p=>({id:p.id,role:'none'})));
+  }catch(error){
+    console.error('Réinitialisation des rôles TDD non enregistrée :',error);
+    alert('Impossible de conserver cette réinitialisation pendant le sondage : '+(error.message||String(error))+' Exécute le fichier tdd-polls-migration.sql.');
+    return;
+  }
   evRoles={};evTeams=null;evTeamsLoaded=false;
   participants.forEach(p=>{evRoles[p.id]='none';});
   await Promise.all([
@@ -4527,8 +4684,11 @@ function renderTddFairResultStats(starters,placedIds){
 }
 
 async function balanceTeams(){
+  if(!(await loadTddSlotVotes())||!(await loadTddTeamSlots())){
+    alert('Impossible de charger les créneaux TDD. Les équipes n’ont pas été équilibrées.');
+    return;
+  }
   if(evNbTeams===2&&!evAsymMode){
-    await loadTddSlotVotes();await loadTddTeamSlots();
     const pool=participants.filter(p=>evRoles[p.id]==='starter'||evRoles[p.id]==='sub');
     if(!pool.length){toast('Sélectionne au moins un joueur');return;}
     evTeams=tddBalancedSlots();
@@ -4540,6 +4700,10 @@ async function balanceTeams(){
   const allTddRegisteredIds=participants.filter(p=>evRoles[p.id]==='starter'||evRoles[p.id]==='sub').map(p=>p.id);
   let starters=sortTddPlayers(participants.filter(p=>evRoles[p.id]==='starter'));
   let subs=sortTddPlayers(participants.filter(p=>evRoles[p.id]==='sub'));
+  if(evNbTeams===1){
+    starters=tddPlayersForTeam(starters,'A');
+    subs=tddPlayersForTeam(subs,'A');
+  }
   const useFairRotation=evFairRotation&&!evAsymMode;
   if(useFairRotation){
     starters=buildTddFairRank(starters);
@@ -4561,20 +4725,11 @@ async function balanceTeams(){
     // Équipe A = les N premiers (les plus forts), Équipe B = le reste
     const all=sortTddPlayers([...starters,...subs]);
     if(all.length<2){toast('Sélectionne au moins 2 joueurs');return;}
-    const nA = Math.min(Math.max(1, evAsymSizeA), all.length-1);
-    const groupA = all.slice(0, nA);
-    const groupB = all.slice(nA);
-    // Remplir les catégories avec les joueurs du groupe, le surplus va en SUB
-    // On calcule combien de places de titulaires existent (hors SUB)
-    const STARTER_SLOTS = CATEGORIES.filter(c=>c.key!=='SUB').reduce((s,c)=>s+c.size,0);
-    const titA = groupA.slice(0, STARTER_SLOTS);
-    const subA = groupA.slice(STARTER_SLOTS);
-    const titB = groupB.slice(0, STARTER_SLOTS);
-    const subB = groupB.slice(STARTER_SLOTS);
-    evTeams={A:buildOneTeam(titA, subA), B:buildOneTeam(titB, subB)};
+    evTeams=tddAsymmetricSlotTeams(all);
+    const countTeam=team=>CATEGORIES.reduce((count,cat)=>count+(team?.[cat.key]?.length||0),0);
     const powA=teamTotalPower(evTeams.A), powB=teamTotalPower(evTeams.B);
     const fmtPow = v => v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
-    toast(`⚡ A : ${groupA.length} joueurs (${fmtPow(powA)}) · B : ${groupB.length} joueurs (${fmtPow(powB)})`);
+    toast(`⚡ A : ${countTeam(evTeams.A)} joueurs (${fmtPow(powA)}) · B : ${countTeam(evTeams.B)} joueurs (${fmtPow(powB)})`);
   } else {
     const STARTER_SLOTS = CATEGORIES.filter(c=>c.key!=='SUB').reduce((s,c)=>s+c.size,0);
     const TOTAL_STARTER_CAP = STARTER_SLOTS * 2;

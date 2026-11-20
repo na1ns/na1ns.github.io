@@ -138,6 +138,8 @@ header p{font-size:13px;color:var(--text3);display:flex;align-items:center;gap:8
 .logout-btn:hover{background:rgba(255,107,107,0.08);color:var(--red);border-color:rgba(255,107,107,0.25)}
 .theme-toggle-btn{width:34px;height:34px;border-radius:50%;border:1px solid var(--border2);background:rgba(255,255,255,0.04);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all var(--transition);flex-shrink:0}
 .theme-toggle-btn:hover{background:rgba(255,255,255,0.1);transform:rotate(20deg);border-color:var(--border3)}
+.site-language-btn{height:34px;min-width:52px;padding:0 9px;border:1px solid var(--border2);border-radius:999px;background:rgba(255,255,255,.04);color:var(--text2);font-family:inherit;font-size:11px;font-weight:800;cursor:pointer;transition:all var(--transition);flex-shrink:0}
+.site-language-btn:hover{background:rgba(255,209,102,.1);border-color:var(--gold);color:var(--gold)}
 body.light .theme-toggle-btn{background:rgba(0,0,0,0.04)}
 body.light .theme-toggle-btn:hover{background:rgba(0,0,0,0.08)}
 body.light .user-bar{background:linear-gradient(135deg,var(--surface2),var(--surface3));border:1px solid var(--border2)}
