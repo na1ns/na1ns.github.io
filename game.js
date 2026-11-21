@@ -166,11 +166,15 @@ function tddBalancedSlots(){
      teams[options[0]][kind].push(p);placed.add(p.id);
    }
  };
- const teamPower=t=>[...t.starters,...t.subs].reduce((n,p)=>n+(p.power_t1||0),0);
+ const teamPower=t=>[...t.starters,...t.subs].reduce((n,p)=>n+getEffectivePower(p),0);
  assign(starters,'starters',capTit);
+ rebalanceTypeQuotas(teams.A.starters,teams.B.starters,(playerA,playerB)=>
+   tddSlotCompatible(playerA.id,'B')&&tddSlotCompatible(playerB.id,'A'));
  // Les titulaires excédentaires sont toujours placés comme remplaçants
  // avant les joueurs déclarés remplaçants.
  assign([...overflow,...subs],'subs',TOTAL_SUBS);
+ rebalanceTypeQuotas(teams.A.subs,teams.B.subs,(playerA,playerB)=>
+   tddSlotCompatible(playerA.id,'B')&&tddSlotCompatible(playerB.id,'A'));
  return {A:buildOneTeam(teams.A.starters,teams.A.subs,true),B:buildOneTeam(teams.B.starters,teams.B.subs,true)};
 }
 
@@ -210,7 +214,7 @@ let permConfig=JSON.parse(JSON.stringify(DEFAULT_PERM));
 let permTableExists=true;
 const DASHBOARD_PAGES=[
   {id:'home',sections:['secTirage']},
-  {id:'players',sections:['sectionParticipants','sectionStats']},
+  {id:'players',sections:['sectionParticipants','sectionPowers','sectionStats']},
   {id:'activities',sections:['secEvents','secCanyon']},
   {id:'polls',sections:['sectionPolls']},
   {id:'history',sections:['secHist','secArchive']},
@@ -223,6 +227,7 @@ const DASHBOARD_TABS={
   ],
   players:[
     {section:'sectionParticipants',label:'Participants'},
+    {section:'sectionPowers',label:'Puissances'},
     {section:'sectionStats',label:'Statistiques'}
   ],
   activities:[
@@ -246,7 +251,7 @@ const DASHBOARD_TABS={
   pollTypes:[
     {section:'tddPollPanel',label:'Tempête du désert'},
     {section:'canyonPollPanel',label:'Canyon'},
-    {section:'t1PollPanel',label:'Puissance T1'},
+    {section:'t1PollPanel',label:'Puissances'},
     {section:'publicPollsPanel',label:'Centre de sondage'}
   ]
 };
@@ -309,6 +314,7 @@ function setDashboardTab(pageId,sectionId){
     if(activeSection==='secRewards'&&rwAllowed())rwFetch(true);
     if(activeSection==='secMovements'&&mvAllowed())mvRefresh(true);
   }
+  if(pageId==='players'&&activeSection==='sectionPowers')refreshT1PowerRoster();
   if(pageId==='pollTypes')refreshPollManagementPanel(activeSection);
 }
 
@@ -1356,6 +1362,7 @@ function showApp(){
   rb.textContent=roleLabel(currentUser.role);
   rb.className='user-role-badge '+roleBadgeClass(currentUser.role);
   document.getElementById('sectionParticipants').style.display=isAdminOrStaff()?'':'none';
+  document.getElementById('sectionPowers').style.display=isAdminOrStaff()?'':'none';
   document.getElementById('sectionStats').style.display=isAdminOrStaff()?'':'none';
   setDashboardPage('home');
   // aboutSection géré via canSeeSection dans PERM_SECTIONS
@@ -1448,8 +1455,69 @@ function sortTddPlayers(players){
   return [...players].sort((a,b)=>{
     const pa=a.ev_priority?1:0,pb=b.ev_priority?1:0;
     if(pa!==pb)return pb-pa;
-    return (b.power_t1||0)-(a.power_t1||0)||String(a.name||'').localeCompare(String(b.name||''));
+    return getEffectivePower(b)-getEffectivePower(a)||String(a.name||'').localeCompare(String(b.name||''));
   });
+}
+
+const T1_TYPE_MULTIPLIERS={avion:1.06,missile:1.03,tank:1,hybride:0.9,mixte:0.9,missile_hybride:0.9};
+let t1CompositionError='';
+function getT1TypeKey(player){
+  const type=String(player?.team1_type||player?.t1_type||'').trim().toLowerCase();
+  if(type==='mixte'||type==='missile_hybride')return 'hybride';
+  return ['tank','avion','missile','hybride'].includes(type)?type:'';
+}
+function getEffectivePower(player){
+  const rawT1=Number(player?.t1_power??player?.power_t1);
+  const t1Power=Number.isFinite(rawT1)&&rawT1>0?rawT1:0;
+  const rawT2=Number(player?.team2_power);
+  const t2Power=Number.isFinite(rawT2)&&rawT2>0?rawT2:t1Power*0.75;
+  const type=String(player?.team1_type||player?.t1_type||'').trim().toLowerCase();
+  const multiplier=Object.prototype.hasOwnProperty.call(T1_TYPE_MULTIPLIERS,type)?T1_TYPE_MULTIPLIERS[type]:1;
+  return t1Power*multiplier+(t2Power*0.35);
+}
+async function loadLatestT1Composition(players=participants){
+  players.forEach(player=>{
+    player.t1_power=Number(player.power_t1)||0;
+    player.team1_type=null;
+    player.team2_power=null;
+    player.team2_type=null;
+  });
+  if(!sb){t1CompositionError='Connexion à la base de données indisponible.';return false;}
+  try{
+    const {data:rounds,error:roundError}=await sb.from('t1_rounds')
+      .select('id').order('opened_at',{ascending:false}).limit(1);
+    if(roundError)throw roundError;
+    const round=rounds?.[0];
+    if(round){
+      const {data:submissions,error}=await sb.from('t1_submissions')
+        .select('participant_id,power,team1_type,team2_power,team2_type').eq('round_id',round.id);
+      if(error)throw error;
+      const byPlayer=new Map((submissions||[]).map(entry=>[Number(entry.participant_id),entry]));
+      players.forEach(player=>{
+        const submission=byPlayer.get(Number(player.id));
+        if(!submission)return;
+        const submittedPower=Number(submission.power);
+        if(Number.isFinite(submittedPower)&&submittedPower>0)player.t1_power=submittedPower;
+        player.team1_type=submission.team1_type||null;
+        player.team2_power=Number(submission.team2_power)||null;
+        player.team2_type=submission.team2_type||null;
+      });
+    }
+    t1CompositionError='';
+    return true;
+  }catch(error){
+    t1CompositionError=error.message||String(error);
+    console.error('Chargement des compositions T1 impossible :',error);
+    return false;
+  }
+}
+function teamTypeBadge(player){
+  const rawType=String(player?.team1_type||player?.t1_type||'').trim().toLowerCase();
+  const labels={tank:'Tank',avion:'Avion',missile:'Missile',hybride:'Hybride',mixte:'Mixte',missile_hybride:'Missile hybride'};
+  const label=labels[rawType];
+  if(!label)return '';
+  const type=getT1TypeKey(player)||'hybride';
+  return `<span class="team-type-badge ${type}" title="Type de l’équipe 1 : ${escapeHtml(label)}">${escapeHtml(label)}</span>`;
 }
 
 async function loadTddFairStats(){
@@ -1596,7 +1664,7 @@ function buildEventTeams(rows){
     CATEGORIES.forEach(category=>{
       team[category.key]=(rowsByCategory.get(category.key)||[])
         .sort((a,b)=>a.position-b.position)
-        .map(row=>row.participants)
+        .map(row=>participants.find(player=>Number(player.id)===Number(row.participant_id))||row.participants)
         .filter(Boolean);
     });
     teams[teamKey]=team;
@@ -1614,7 +1682,9 @@ async function _loadAllImpl(){
       sb.from('event_teams').select('*,participants(*)').order('position')
     ]);
     if(pErr||hErr)throw pErr||hErr;
-    participants=pData||[];history=hData||[];weeksHistory=wData||[];if(rwData&&rwAllowed()){rwRefreshPlayerSelects();rwRenderInput();rwRender();}
+    participants=pData||[];
+    await loadLatestT1Composition(participants);
+    history=hData||[];weeksHistory=wData||[];if(rwData&&rwAllowed()){rwRefreshPlayerSelects();rwRenderInput();rwRender();}
     // Afficher immédiatement les historiques dès que les données sont chargées.
     // Ainsi, une erreur dans une autre section (TDD, Canyon, etc.) ne peut plus
     // laisser ces deux zones bloquées sur « Chargement… ».
@@ -3667,7 +3737,7 @@ function sortCanyonPlayers(players){
     const aMissed=Number(canyonNonRetenus[a.id]||0);
     const bMissed=Number(canyonNonRetenus[b.id]||0);
     if(aMissed!==bMissed)return bMissed-aMissed;
-    return (b.power_t1||0)-(a.power_t1||0)||a.name.localeCompare(b.name,'fr');
+    return getEffectivePower(b)-getEffectivePower(a)||a.name.localeCompare(b.name,'fr');
   });
 }
 
@@ -3852,31 +3922,27 @@ async function canyonSelectAll(role){
 }
 
 function splitCanyonBalanced(players){
-  // Répartition serpentine par puissance décroissante
-  const sorted = [...players].sort((a,b)=>(b.power_t1||0)-(a.power_t1||0)||a.name.localeCompare(b.name,'fr'));
-  const A=[], B=[];
-  sorted.forEach((p,i)=>{ if(i%2===0)A.push(p); else B.push(p); });
-  return [A,B];
+  return splitBalanced(players);
 }
 
 function distributeCanyonZones(players,elPriority=canyonElPriority){
   const zones=Object.fromEntries(CANYON_ZONES.map(zone=>[zone.key,[]]));
-  const powers=Object.fromEntries(CANYON_ZONES.map(zone=>[zone.key,0]));
-  const remaining=[...players].sort((a,b)=>(b.power_t1||0)-(a.power_t1||0)||a.name.localeCompare(b.name,'fr'));
+  const scores=Object.fromEntries(CANYON_ZONES.map(zone=>[zone.key,0]));
+  const remaining=[...players].sort((a,b)=>getEffectivePower(b)-getEffectivePower(a)||a.name.localeCompare(b.name,'fr'));
   const freeZone=elPriority?CANYON_ZONES.find(zone=>zone.key==='free'):null;
   if(freeZone){
     const freePlayers=remaining.splice(0,CANYON_ZONE_CAPACITY);
     zones[freeZone.key]=freePlayers;
-    powers[freeZone.key]=freePlayers.reduce((sum,player)=>sum+(player.power_t1||0),0);
+    scores[freeZone.key]=freePlayers.reduce((sum,player)=>sum+getEffectivePower(player),0);
   }
   const distributionZones=CANYON_ZONES.filter(zone=>!freeZone||zone.key!==freeZone.key);
   remaining.forEach(player=>{
     const zone=distributionZones
       .filter(({key})=>zones[key].length<CANYON_ZONE_CAPACITY)
-      .sort((a,b)=>powers[a.key]-powers[b.key]||zones[a.key].length-zones[b.key].length)[0];
+      .sort((a,b)=>scores[a.key]-scores[b.key]||zones[a.key].length-zones[b.key].length)[0];
     if(zone){
       zones[zone.key].push(player);
-      powers[zone.key]+=(player.power_t1||0);
+      scores[zone.key]+=getEffectivePower(player);
     }
   });
   return zones;
@@ -3888,6 +3954,10 @@ async function balanceCanyonTeams(){
   const maxStarters = CANYON_STARTERS_PER_TEAM * canyonNbTeams;
   const maxSubs = CANYON_SUBS_PER_TEAM * canyonNbTeams;
   if(!availableStarters.length&&!availableSubs.length){ toast('Sélectionne au moins un joueur'); return; }
+  if(!(await loadLatestT1Composition())){
+    toast('Équilibrage annulé : chargement des types T1 impossible. '+t1CompositionError);
+    return;
+  }
 
   const {starterPool,subPool:selectedSubs}=selectCanyonRoster(availableStarters,availableSubs,maxStarters,maxSubs);
 
@@ -3897,6 +3967,11 @@ async function balanceCanyonTeams(){
   const A = {starters:AStarters, zones:distributeCanyonZones(AStarters), subs:subGroups[0]||[]};
   const BStarters=starterGroups[1]||[];
   const B = canyonNbTeams===2 ? {starters:BStarters, zones:distributeCanyonZones(BStarters), subs:subGroups[1]||[]} : null;
+  if(B){
+    rebalanceCanyonTeamTypeQuotas(A,B);
+    A.zones=distributeCanyonZones(A.starters);
+    B.zones=distributeCanyonZones(B.starters);
+  }
   canyonTeams = {A, B};
 
   const fmtPow = v=>v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
@@ -3908,7 +3983,7 @@ async function balanceCanyonTeams(){
   const subIds=new Set(availableSubs.map(p=>p.id));
   const startersMovedToSubs=selectedSubs.filter(p=>starterIds.has(p.id)).length;
   const subsMovedToStarters=starterPool.filter(p=>subIds.has(p.id)).length;
-  const summary=`⚖️ A : ${A.starters.length} tit. + ${A.subs.length} rem. (${fmtPow(totalA.reduce((s,p)=>s+(p.power_t1||0),0))})${B?` · B : ${B.starters.length} tit. + ${B.subs.length} rem. (${fmtPow(totalB.reduce((s,p)=>s+(p.power_t1||0),0))})`:''}${startersMovedToSubs?` · ${startersMovedToSubs} titulaire(s) reporté(s) en remplaçant`:''}${subsMovedToStarters?` · ${subsMovedToStarters} remplaçant(s) utilisé(s) comme titulaire(s)`:''}`;
+  const summary=`⚖️ Score réel — A : ${A.starters.length} tit. + ${A.subs.length} rem. (${fmtPow(totalA.reduce((sum,player)=>sum+getEffectivePower(player),0))})${B?` · B : ${B.starters.length} tit. + ${B.subs.length} rem. (${fmtPow(totalB.reduce((sum,player)=>sum+getEffectivePower(player),0))})`:''}${startersMovedToSubs?` · ${startersMovedToSubs} titulaire(s) reporté(s) en remplaçant`:''}${subsMovedToStarters?` · ${subsMovedToStarters} remplaçant(s) utilisé(s) comme titulaire(s)`:''}`;
 
   renderCanyonTeams();
   try{await saveCanyonTeamsToDB();}
@@ -4000,7 +4075,7 @@ function renderCanyonTeams(){
       <div class="canyon-drop-target" ondragover="canyonDragOver(event)" ondragleave="canyonDragLeave(event)" ondrop="canyonDrop(event,'${teamKey}','${type}','')">
       ${players.length?players.map((p,i)=>`<div class="ev-team-player canyon-team-player" draggable="true" ondragstart="canyonDragStart(event,'${teamKey}','${type}','',${i})" ondragend="canyonDragEnd()">
         <span class="ev-pnum">${i+1}</span>
-        <span class="ev-pname">${escapeHtml(p.name)}</span><span class="canyon-drag-handle" aria-hidden="true">⠿</span>
+        <span class="ev-pname">${escapeHtml(p.name)}</span>${teamTypeBadge(p)}<span class="canyon-drag-handle" aria-hidden="true">⠿</span>
       </div>`).join(''):'<div class="canyon-zone-empty">Déposer ici</div>'}
       </div>
     </div>`;
@@ -4018,7 +4093,7 @@ function renderCanyonTeams(){
         <div class="canyon-drop-target" ondragover="canyonDragOver(event)" ondragleave="canyonDragLeave(event)" ondrop="canyonDrop(event,'${teamKey}','starter','${zone.key}')">
         ${players.length?players.map((p,i)=>`<div class="ev-team-player canyon-team-player" draggable="true" ondragstart="canyonDragStart(event,'${teamKey}','starter','${zone.key}',${i})" ondragend="canyonDragEnd()">
           <span class="ev-pnum">${i+1}</span>
-          <span class="ev-pname">${escapeHtml(p.name)}</span><span class="canyon-drag-handle" aria-hidden="true">⠿</span>
+          <span class="ev-pname">${escapeHtml(p.name)}</span>${teamTypeBadge(p)}<span class="canyon-drag-handle" aria-hidden="true">⠿</span>
         </div>`).join(''):'<div class="canyon-zone-empty">Déposer ici</div>'}
         </div>
       </div>`;
@@ -4036,7 +4111,9 @@ function renderCanyonTeams(){
     </div>`;
   };
 
-  result.innerHTML = `<div class="canyon-drag-hint">⠿ Glissez un joueur vers une autre zone, une autre équipe ou les remplaçants.</div>
+  const teamPlayers=team=>Array.isArray(team)?team:[...(team?.starters||[]),...(team?.subs||[])];
+  const typeWarning=canyonTeams.B?typeQuotaWarningHtml(teamPlayers(canyonTeams.A),teamPlayers(canyonTeams.B)):'';
+  result.innerHTML = `${typeWarning}<div class="canyon-drag-hint">⠿ Glissez un joueur vers une autre zone, une autre équipe ou les remplaçants.</div>
   <div class="ev-teams-grid${canyonTeams.B?' two':''}">
     ${renderTeam(canyonTeams.A,'A','Équipe A','teamA')}
     ${canyonTeams.B?renderTeam(canyonTeams.B,'B','Équipe B','teamB'):''}
@@ -4110,46 +4187,6 @@ function onDragEnd(){dragSrcIdx=null;document.querySelectorAll('.p-row').forEach
 
 function startEdit(idx){const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;row.querySelector('.name-disp').style.display='none';const inp=row.querySelector('.name-inp');inp.style.display='inline-block';inp.value=participants[idx].name;inp.focus();inp.select();}
 function commitEdit(idx){const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;renameName(participants[idx].id,participants[idx].name,row.querySelector('.name-inp').value);}
-function startEditPower(idx){if(!isAdminOrStaff())return;const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;row.querySelector('.power-disp').style.display='none';const inp=row.querySelector('.power-inp');inp.style.display='block';inp.value=participants[idx].power_t1?(Number(participants[idx].power_t1)/1e6).toFixed(2):'';inp.focus();inp.select();}
-async function commitPower(idx){
-  if(!isAdminOrStaff())return;
-  const row=document.querySelector(`[data-idx="${idx}"]`);
-  const input=row?.querySelector('.power-inp');
-  const p=participants[idx];
-  if(!input||!p)return;
-  const raw=input.value.trim();
-  const val=raw?t1ParsePower(/[a-z]/i.test(raw)?raw:raw+'M'):null;
-  if(raw&&val===null){alert('Puissance invalide : indique par exemple 51.00 (en millions).');input.focus();return;}
-  if(val===null){alert('Indique une puissance en millions, par exemple 51.00.');input.focus();return;}
-  if(Number(p.power_t1)===val){render();return;}
-  if(!sb){alert('Connexion Supabase indisponible.');return;}
-  input.disabled=true;
-  setBusy(true);
-  try{
-    const {data,error}=await sb.from('participants').update({power_t1:val}).eq('id',p.id).select('id,power_t1').maybeSingle();
-    if(error)throw error;
-    if(!data)throw new Error('La base n’a modifié aucune ligne (autorisations RLS possibles).');
-    const saved=Number(data.power_t1);
-    if(!Number.isFinite(saved)||Math.abs(saved-val)>0.5){
-      throw new Error('Supabase a retourné '+String(data.power_t1)+' au lieu de '+val+'. Vérifie le type de la colonne power_t1 et les déclencheurs SQL.');
-    }
-    // Relire la valeur stockée pour ne jamais annoncer une réussite sur une valeur restée à zéro.
-    const {data:verified,error:readError}=await sb.from('participants').select('power_t1').eq('id',p.id).maybeSingle();
-    if(readError)throw readError;
-    if(!verified||Math.abs(Number(verified.power_t1)-val)>0.5){
-      throw new Error('La vérification après enregistrement a échoué : valeur en base = '+String(verified?.power_t1));
-    }
-    p.power_t1=Number(verified.power_t1);
-    render();
-    if(typeof renderStats==='function')renderStats();
-    toast('⚡ Puissance enregistrée : '+t1FormatPower(p.power_t1));
-  }catch(err){
-    console.error('Erreur correction puissance participant',err);
-    alert('Impossible d’enregistrer la puissance de '+p.name+' : '+(err?.message||err));
-    input.disabled=false;
-    input.focus();
-  }finally{setBusy(false);}
-}
 
 document.addEventListener('keydown',event=>{
   const tab=event.target instanceof Element?event.target.closest('[role="tab"][data-dashboard-tab]'):null;
@@ -4186,9 +4223,9 @@ function render(){
 
 
     head.style.display='';
-    const cols=`${showPres?'36px ':''}32px minmax(120px,1fr) 85px repeat(5,28px) 90px${isAdmin()?' 32px':''}`;
+    const cols=`${showPres?'36px ':''}32px minmax(120px,1fr) repeat(5,28px) 90px${isAdmin()?' 32px':''}`;
     head.style.gridTemplateColumns=cols;
-    head.innerHTML=`${showPres?'<span style="text-align:center">✓</span>':''}<span style="font-size:9px;text-align:center">#</span><span class="h-name">Nom</span><span style="font-size:9px;color:var(--cyan);text-align:center">Puiss.</span>${DAYS.map(d=>`<span style="font-size:9px;text-align:center">${d}</span>`).join('')}<span style="font-size:9px;text-align:center">Élig.</span>${isAdmin()?'<span title="Priorité staff" style="font-size:9px;text-align:center">⭐</span>':''}`;
+    head.innerHTML=`${showPres?'<span style="text-align:center">✓</span>':''}<span style="font-size:9px;text-align:center">#</span><span class="h-name">Nom</span>${DAYS.map(d=>`<span style="font-size:9px;text-align:center">${d}</span>`).join('')}<span style="font-size:9px;text-align:center">Élig.</span>${isAdmin()?'<span title="Priorité staff" style="font-size:9px;text-align:center">⭐</span>':''}`;
     if(!filtered.length){
       body.innerHTML=`<div style="padding:16px;font-size:13px;color:var(--text3);font-style:italic">${searchFilter?'Aucun résultat pour "'+searchFilter+'"':'Aucun participant.'}</div>`;
     }else{
@@ -4202,7 +4239,6 @@ function render(){
           ${showPres?`<div style="display:flex;align-items:center;justify-content:center"><input type="checkbox" class="cb-pres" ${isPresent?'checked':''} onchange="togglePresent(${p.id})" ondragstart="event.stopPropagation()"/></div>`:''}
           <span class="player-num">${realIdx+1}</span>
           <div class="name-cell"><span class="name-disp" onclick="startEdit(${realIdx})">${nameHtml}</span><input class="name-inp" ondragstart="event.stopPropagation()" onblur="commitEdit(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
-          <div class="power-cell"><span class="power-disp${!p.power_t1?' empty-val':''}" onclick="startEditPower(${realIdx})" title="${isAdminOrStaff()?'Cliquer pour corriger la puissance':'Puissance T1'}" style="${isAdminOrStaff()?'cursor:pointer':'cursor:default'}">${p.power_t1?t1FormatPower(p.power_t1):'—'}${isAdminOrStaff()?' ✏️':''}</span><input class="power-inp" type="text" inputmode="decimal" placeholder="51.00" title="Puissance en millions (M)" ondragstart="event.stopPropagation()" onblur="commitPower(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
           <div style="display:contents">${coffresBtns}</div>
           <div style="display:flex;align-items:center;justify-content:center;gap:4px"><span class="elig-btn ${elig?'yes':'no'}">${elig?'✓':'✗'}</span><button class="del-btn" onclick="removeName(${p.id})">×</button></div>
           ${isAdmin()?`<div style="display:flex;align-items:center;justify-content:center"><input type="checkbox" title="Priorité staff ⭐" ${p.is_priority?'checked':''} onchange="togglePriority(${p.id},this)" ondragstart="event.stopPropagation()" style="width:15px;height:15px;accent-color:var(--amber);cursor:pointer"/></div>`:''}
@@ -4723,6 +4759,10 @@ function renderTddFairResultStats(starters,placedIds){
 }
 
 async function balanceTeams(){
+  if(!(await loadLatestT1Composition())){
+    alert('Équilibrage annulé : chargement des types T1 impossible. '+t1CompositionError);
+    return;
+  }
   if(!(await loadTddSlotVotes())||!(await loadTddTeamSlots())){
     alert('Impossible de charger les créneaux TDD. Les équipes n’ont pas été équilibrées.');
     return;
@@ -4731,6 +4771,8 @@ async function balanceTeams(){
     const pool=participants.filter(p=>evRoles[p.id]==='starter'||evRoles[p.id]==='sub');
     if(!pool.length){toast('Sélectionne au moins un joueur');return;}
     evTeams=tddBalancedSlots();
+    rebalanceEventTeamTypeQuotas(evTeams,(playerA,playerB)=>
+      tddSlotCompatible(playerA.id,'B')&&tddSlotCompatible(playerB.id,'A'));
     await saveEvTeamsToDB();
     const placedIds=new Set(['A','B'].flatMap(k=>CATEGORIES.flatMap(c=>(evTeams[k]?.[c.key]||[]).map(p=>p.id))));
     const starterPlacedIds=[];
@@ -4776,9 +4818,9 @@ async function balanceTeams(){
     if(all.length<2){toast('Sélectionne au moins 2 joueurs');return;}
     evTeams=tddAsymmetricSlotTeams(all);
     const countTeam=team=>CATEGORIES.reduce((count,cat)=>count+(team?.[cat.key]?.length||0),0);
-    const powA=teamTotalPower(evTeams.A), powB=teamTotalPower(evTeams.B);
+    const powA=teamTotalEffectivePower(evTeams.A), powB=teamTotalEffectivePower(evTeams.B);
     const fmtPow = v => v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
-    toast(`⚡ A : ${countTeam(evTeams.A)} joueurs (${fmtPow(powA)}) · B : ${countTeam(evTeams.B)} joueurs (${fmtPow(powB)})`);
+    toast(`⚡ Score réel — A : ${countTeam(evTeams.A)} joueurs (${fmtPow(powA)}) · B : ${countTeam(evTeams.B)} joueurs (${fmtPow(powB)})`);
   } else {
     const STARTER_SLOTS = CATEGORIES.filter(c=>c.key!=='SUB').reduce((s,c)=>s+c.size,0);
     const TOTAL_STARTER_CAP = STARTER_SLOTS * 2;
@@ -4813,7 +4855,7 @@ async function balanceTeams(){
       selectedSubPool = sortTddPlayers(subs);
     }
 
-    // 4) Une fois la sélection faite, la puissance sert uniquement à équilibrer A/B.
+    // 4) Une fois la sélection faite, le score réel sert à équilibrer A/B.
     const [starterGroupA, starterGroupB] = splitBalanced(selectedStarterPool);
     const titA = starterGroupA.slice(0, STARTER_SLOTS);
     const titB = starterGroupB.slice(0, STARTER_SLOTS);
@@ -4846,10 +4888,14 @@ async function balanceTeams(){
       Promise.all(toReset.map(p=>sb.from('participants').update({ev_priority:false}).eq('id',p.id)));
     }
 
-    const powA=teamTotalPower(evTeams.A), powB=teamTotalPower(evTeams.B);
+    const powA=teamTotalEffectivePower(evTeams.A), powB=teamTotalEffectivePower(evTeams.B);
     const fmtPow=v=>v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
     const titleCountInSubs = useFairRotation ? overflowStarterPool.length : 0;
-    toast(`⚖️ A : ${titA.length} tit. + ${subPoolA.length} rem. (${fmtPow(powA)}) · B : ${titB.length} tit. + ${subPoolB.length} rem. (${fmtPow(powB)})${titleCountInSubs?` · ${titleCountInSubs} titulaire${titleCountInSubs>1?'s':''} reporté${titleCountInSubs>1?'s':''} en SUB`:''}`);
+    toast(`⚖️ Score réel — A : ${titA.length} tit. + ${subPoolA.length} rem. (${fmtPow(powA)}) · B : ${titB.length} tit. + ${subPoolB.length} rem. (${fmtPow(powB)})${titleCountInSubs?` · ${titleCountInSubs} titulaire${titleCountInSubs>1?'s':''} reporté${titleCountInSubs>1?'s':''} en SUB`:''}`);
+  }
+  if(evTeams?.B){
+    rebalanceEventTeamTypeQuotas(evTeams,(playerA,playerB)=>
+      tddSlotCompatible(playerA.id,'B')&&tddSlotCompatible(playerB.id,'A'));
   }
   await saveEvTeamsToDB();
   const placedIds=new Set();
@@ -4872,15 +4918,101 @@ async function balanceTeams(){
 }
 
 function splitBalanced(players){
-  const sorted=[...players].sort((a,b)=>(b.power_t1||0)-(a.power_t1||0));
-  const A=[],B=[];let pA=0,pB=0;
-  sorted.forEach(p=>{if(pA<=pB){A.push(p);pA+=p.power_t1||0;}else{B.push(p);pB+=p.power_t1||0;}});
+  const sorted=[...players].sort((a,b)=>
+    getEffectivePower(b)-getEffectivePower(a)||
+    String(a.name||'').localeCompare(String(b.name||''),'fr',{sensitivity:'base'}));
+  const A=[],B=[];
+  sorted.forEach((player,index)=>{
+    if(index%4===0||index%4===3)A.push(player);
+    else B.push(player);
+  });
+  rebalanceTypeQuotas(A,B);
   return[A,B];
+}
+
+const TEAM_T1_TYPES=['tank','avion','missile','hybride'];
+function typeQuotaPenalty(teamA,teamB){
+  const countsA=Object.fromEntries(TEAM_T1_TYPES.map(type=>[type,0]));
+  const countsB=Object.fromEntries(TEAM_T1_TYPES.map(type=>[type,0]));
+  teamA.forEach(player=>{const type=getT1TypeKey(player);if(type)countsA[type]++;});
+  teamB.forEach(player=>{const type=getT1TypeKey(player);if(type)countsB[type]++;});
+  return TEAM_T1_TYPES.reduce((penalty,type)=>penalty+Math.max(0,Math.abs(countsA[type]-countsB[type])-2),0);
+}
+function typeQuotaWarningHtml(teamA,teamB){
+  if(t1CompositionError)return `<div class="team-type-warning">⚠️ Types T1 indisponibles : ${escapeHtml(t1CompositionError)}</div>`;
+  const countsA=Object.fromEntries(TEAM_T1_TYPES.map(type=>[type,0]));
+  const countsB=Object.fromEntries(TEAM_T1_TYPES.map(type=>[type,0]));
+  teamA.forEach(player=>{const type=getT1TypeKey(player);if(type)countsA[type]++;});
+  teamB.forEach(player=>{const type=getT1TypeKey(player);if(type)countsB[type]++;});
+  const labels={tank:'Tank',avion:'Avion',missile:'Missile',hybride:'Hybride'};
+  const warnings=TEAM_T1_TYPES.filter(type=>Math.abs(countsA[type]-countsB[type])>2)
+    .map(type=>`${labels[type]} : A ${countsA[type]} / B ${countsB[type]}`);
+  return warnings.length?`<div class="team-type-warning">⚠️ Écart de types supérieur à 2 — ${warnings.join(' · ')}</div>`:'';
+}
+function rebalanceTypeQuotas(teamA,teamB,canSwap=()=>true){
+  const maxSwaps=teamA.length*teamB.length;
+  let swaps=0,penalty=typeQuotaPenalty(teamA,teamB);
+  while(penalty>0&&swaps<maxSwaps){
+    let best=null;
+    for(let i=0;i<teamA.length;i++){
+      const playerA=teamA[i],typeA=getT1TypeKey(playerA);
+      if(!typeA)continue;
+      for(let j=0;j<teamB.length;j++){
+        const playerB=teamB[j],typeB=getT1TypeKey(playerB);
+        if(!typeB||typeA===typeB||!canSwap(playerA,playerB))continue;
+        const powerA=Number(playerA.t1_power??playerA.power_t1)||0;
+        const powerB=Number(playerB.t1_power??playerB.power_t1)||0;
+        if(Math.abs(powerA-powerB)>1500000)continue;
+        const nextA=[...teamA],nextB=[...teamB];
+        nextA[i]=playerB;nextB[j]=playerA;
+        const nextPenalty=typeQuotaPenalty(nextA,nextB);
+        if(nextPenalty>=penalty)continue;
+        const scoreGap=Math.abs(getEffectivePower(playerA)-getEffectivePower(playerB));
+        if(!best||nextPenalty<best.penalty||nextPenalty===best.penalty&&scoreGap<best.scoreGap){
+          best={i,j,penalty:nextPenalty,scoreGap};
+        }
+      }
+    }
+    if(!best)break;
+    [teamA[best.i],teamB[best.j]]=[teamB[best.j],teamA[best.i]];
+    penalty=best.penalty;
+    swaps++;
+  }
+  return {swaps,remainingImbalance:penalty};
+}
+function rebalanceEventTeamTypeQuotas(teams,canSwap=()=>true){
+  if(!teams?.A||!teams?.B)return{swaps:0,remainingImbalance:0};
+  const slotsFor=team=>CATEGORIES.flatMap(category=>(team[category.key]||[]).map((player,index)=>({
+    players:team[category.key],index,player,isSub:category.key==='SUB'
+  })));
+  const slotsA=slotsFor(teams.A),slotsB=slotsFor(teams.B);
+  const playersA=slotsA.map(slot=>slot.player),playersB=slotsB.map(slot=>slot.player);
+  const playerRoles=new Map([...slotsA,...slotsB].map(slot=>[String(slot.player.id),slot.isSub]));
+  const result=rebalanceTypeQuotas(playersA,playersB,(playerA,playerB)=>{
+    return playerRoles.get(String(playerA.id))===playerRoles.get(String(playerB.id))&&canSwap(playerA,playerB);
+  });
+  slotsA.forEach((slot,index)=>{slot.players[slot.index]=playersA[index];});
+  slotsB.forEach((slot,index)=>{slot.players[slot.index]=playersB[index];});
+  return result;
+}
+function rebalanceCanyonTeamTypeQuotas(teamA,teamB){
+  const slotsFor=team=>[
+    ...team.starters.map((player,index)=>({players:team.starters,index,player,isSub:false})),
+    ...team.subs.map((player,index)=>({players:team.subs,index,player,isSub:true}))
+  ];
+  const slotsA=slotsFor(teamA),slotsB=slotsFor(teamB);
+  const playersA=slotsA.map(slot=>slot.player),playersB=slotsB.map(slot=>slot.player);
+  const playerRoles=new Map([...slotsA,...slotsB].map(slot=>[String(slot.player.id),slot.isSub]));
+  const result=rebalanceTypeQuotas(playersA,playersB,(playerA,playerB)=>
+    playerRoles.get(String(playerA.id))===playerRoles.get(String(playerB.id)));
+  slotsA.forEach((slot,index)=>{slot.players[slot.index]=playersA[index];});
+  slotsB.forEach((slot,index)=>{slot.players[slot.index]=playersB[index];});
+  return result;
 }
 
 function buildOneTeam(starters,subs,keepSubs=false){
   const team=makeEmptyTeam();const subPool=[...subs];
-  const sorted=[...starters].sort((a,b)=>(b.power_t1||0)-(a.power_t1||0));
+  const sorted=[...starters].sort((a,b)=>getEffectivePower(b)-getEffectivePower(a));
   const starterCats=CATEGORIES.filter(c=>c.key!=='SUB'); // toutes les cats titulaires
   let pool;
   if(evElPriority){
@@ -4906,6 +5038,7 @@ function buildOneTeam(starters,subs,keepSubs=false){
 }
 
 function teamTotalPower(team){if(!team)return 0;return CATEGORIES.flatMap(c=>team[c.key]||[]).reduce((s,p)=>s+(p.power_t1||0),0);}
+function teamTotalEffectivePower(team){if(!team)return 0;return CATEGORIES.flatMap(c=>team[c.key]||[]).reduce((s,p)=>s+getEffectivePower(p),0);}
 
 let evDragSrcData=null;
 function evDragStart(e,team,catKey,idx){
@@ -5059,13 +5192,17 @@ function renderEventTeams(){
   const result=document.getElementById('evTeamsResult');
   updateEvBanner();
   if(!evTeams){result.innerHTML='';return;}
-  const powA=teamTotalPower(evTeams.A);const powB=evTeams.B?teamTotalPower(evTeams.B):0;
+  const powA=teamTotalEffectivePower(evTeams.A);const powB=evTeams.B?teamTotalEffectivePower(evTeams.B):0;
+  const playersForTeam=teamKey=>CATEGORIES.flatMap(category=>evTeams[teamKey]?.[category.key]||[]);
+  const typeWarning=evTeams.B
+    ?typeQuotaWarningHtml(playersForTeam('A'),playersForTeam('B'))
+    :t1CompositionError?typeQuotaWarningHtml([],[]):'';
   let balanceHtml='';
   if(evTeams.B){
     const diff=Math.abs(powA-powB);const total=powA+powB;const pct=total>0?Math.round(diff/total*100):0;
     const cls=pct<=5?'ev-balance-pill':'ev-balance-pill warn';
     const icon=pct<=5?'✓ Très équilibré':pct<=10?'~ Bon équilibre':'⚠️ Déséquilibré';
-    balanceHtml=`<div class="ev-balance-info" style="margin-bottom:14px"><span class="${cls}">Écart A/B : ${diff.toLocaleString('fr-FR')} pts (${pct}%) — ${icon}</span></div>`;
+    balanceHtml=`<div class="ev-balance-info" style="margin-bottom:14px"><span class="${cls}">Écart du score réel A/B : ${diff.toLocaleString('fr-FR')} pts (${pct}%) — ${icon}</span></div>`;
   }
   const renderTeam=(teamKey,label,headerCls)=>{
     const team=evTeams[teamKey];if(!team)return'';
@@ -5078,14 +5215,14 @@ function renderEventTeams(){
         const replaceBtn=`<button onclick="openTddReplaceMenu(event,'${teamKey}','${cat.key}',${i})" title="Remplacer par un joueur non placé" style="background:rgba(124,159,255,0.07);border:1px solid rgba(124,159,255,0.2);border-radius:6px;cursor:pointer;font-size:11px;padding:2px 7px;color:var(--blue);white-space:nowrap;flex-shrink:0;transition:all .15s">⇄ Remplacer</button>`;
         const roleLetter=evRoles[p.id]==='starter'?'T':evRoles[p.id]==='sub'?'R':'';
         const roleBadge=roleLetter?`<span style="font-size:11px;font-weight:800;color:var(--text2);min-width:14px;text-align:center" title="${roleLetter==='T'?'Titulaire':'Remplaçant'}">${roleLetter}</span>`:'';
-        return `<div class="ev-team-player" data-ev-team="${teamKey}" data-ev-cat="${cat.key}" data-ev-idx="${i}" draggable="true" ondragstart="evDragStart(event,'${teamKey}','${cat.key}',${i})" ondragend="evDragEnd()"><span class="ev-pnum">${i+1}</span>${roleBadge}<span class="ev-pname">${p.name}</span>${replaceBtn}${switchBtn}<span style="font-size:11px;color:var(--text4);cursor:grab;flex-shrink:0">⠿</span></div>`;
+        return `<div class="ev-team-player" data-ev-team="${teamKey}" data-ev-cat="${cat.key}" data-ev-idx="${i}" draggable="true" ondragstart="evDragStart(event,'${teamKey}','${cat.key}',${i})" ondragend="evDragEnd()"><span class="ev-pnum">${i+1}</span>${roleBadge}<span class="ev-pname">${escapeHtml(p.name)}</span>${teamTypeBadge(p)}${replaceBtn}${switchBtn}<span style="font-size:11px;color:var(--text4);cursor:grab;flex-shrink:0">⠿</span></div>`;
       }).join('');
       const isFull=players.length>=cat.size;const dropZone=`<div class="ev-cat-drop" ondragover="evDropZoneOver(event,'${teamKey}','${cat.key}')" ondragleave="evDropZoneLeave(event)" ondrop="evDropOnCatUniversal(event,'${teamKey}','${cat.key}')" style="min-height:${isEmpty?'38px':'4px'};display:flex;align-items:center;justify-content:center;border-radius:6px;transition:all .15s">${isEmpty?`<span style="font-size:11px;color:var(--text3);font-style:italic">${isFull?'Plein':'Déposer ici'}</span>`:''}</div>`;
       return `<div class="ev-cat-block" style="border-left:2px solid ${cat.color}"><div class="ev-cat-header" style="background:${cat.bg}"><span class="ev-cat-title" style="color:${cat.color}">${cat.label}</span><span class="ev-cat-info">${players.length}/${cat.size}</span></div>${playersHtml}${dropZone}</div>`;
     }).join('');
     return `<div class="ev-team-card"><div class="ev-team-header ${headerCls}"><span class="ev-team-title ${headerCls}">⚔️ ${label} — ${tddSlotLabel(tddTeamSlots[teamKey])}</span><span class="ev-team-power">${stCount} tit. · ${subCount} rempl.</span></div><div class="ev-team-body">${catsHtml}</div><button class="ev-copy-btn" onclick="evCopyTeam('${teamKey}','${label}')">📋 Copier ${label}</button></div>`;
   };
-  result.innerHTML=`${balanceHtml}<div class="ev-teams-grid${evTeams.B?' two':''}">
+  result.innerHTML=`${balanceHtml}${typeWarning}<div class="ev-teams-grid${evTeams.B?' two':''}">
     ${renderTeam('A','Équipe A','teamA')}
     ${evTeams.B?renderTeam('B','Équipe B','teamB'):''}
   </div>`;
@@ -5151,7 +5288,7 @@ window.addEventListener('load',()=>{
 });
 
 // ══ RECENSEMENT PUISSANCE T1 ══
-let t1Players=[],t1Entries={},t1Busy=false,t1OcrLoaded=false,t1CurrentRound=null;
+let t1Players=[],t1Entries={},t1Busy=false,t1CurrentRound=null;
 const t1Url=()=>window.location.href.split('?')[0]+'?poll=t1';
 function t1Status(message,isError=false){const el=document.getElementById('t1Status');if(el){el.textContent=message;el.style.color=isError?'var(--red)':'var(--text2)';}}
 function checkT1PollMode(){
@@ -5204,138 +5341,142 @@ function t1FormatPower(n){return (Number(n)/1e6).toFixed(2)+'M';}
 function t1PowerChanged(){
   const input=document.getElementById('t1Power');
   const btn=document.getElementById('t1SubmitBtn');
-  const file=document.getElementById('t1Image').files[0];
-  const valid=!!t1ParsePower(input.value);
-  if(btn)btn.disabled=t1Busy||!file||!valid;
-  input.setAttribute('aria-invalid',input.value&&!valid?'true':'false');
-}
-function t1ImageChanged(){
-  const file=document.getElementById('t1Image').files[0];const img=document.getElementById('t1Preview');
-  if(!file){img.style.display='none';document.getElementById('t1Power').value='';document.getElementById('t1SubmitBtn').disabled=true;t1Status('');return;}
-  if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>5*1024*1024){
-    document.getElementById('t1Image').value='';img.style.display='none';t1Status('Image JPG, PNG ou WEBP de 5 Mo maximum.',true);return;
-  }
-  img.src=URL.createObjectURL(file);img.style.display='block';img.onload=()=>URL.revokeObjectURL(img.src);
-  document.getElementById('t1Power').value='';
-  document.getElementById('t1SubmitBtn').disabled=true;
-  t1Recognize(file);
-}
-async function t1Recognize(selectedFile){
-  const status=(message,error=false)=>t1Status(message,error);
-  const input=document.getElementById('t1Image');
-  const file=selectedFile || (input && input.files && input.files[0]);
-  if(!file){status('Choisis une capture d’écran.',true);return;}
-  const submitBtn=document.getElementById('t1SubmitBtn');
-  if(submitBtn)submitBtn.disabled=true;
-  const timeout=(promise,ms,label)=>Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error(label)),ms))]);
-  try{
-    status('Chargement de la reconnaissance… La première utilisation peut prendre 20 à 40 secondes.');
-    if(!window.Tesseract){
-      await timeout(new Promise((resolve,reject)=>{
-        const sc=document.createElement('script');
-        sc.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-        sc.onload=resolve;
-        sc.onerror=()=>reject(new Error('Impossible de charger la bibliothèque OCR (connexion ou bloqueur de scripts).'));
-        document.head.appendChild(sc);
-      }),20000,'Chargement OCR trop long. Vérifie ta connexion Internet.');
-    }
-    if(!window.Tesseract)throw new Error('Bibliothèque OCR non chargée.');
-    status('Préparation de la capture…');
-    const bmp=await timeout(createImageBitmap(file),12000,'Impossible de décoder cette image. Essaie un fichier JPG ou PNG.');
-    // Plusieurs cadrages : les captures peuvent varier selon l'appareil.
-    const crops=[
-      [.28,0,.46,.105],
-      [.18,0,.65,.16],
-      [0,0,1,.20]
-    ];
-    const found=[];const readings=[];
-    for(let k=0;k<crops.length;k++){
-      const [rx,ry,rw,rh]=crops[k];
-      const sx=Math.round(bmp.width*rx),sy=Math.round(bmp.height*ry);
-      const sw=Math.max(1,Math.round(bmp.width*rw)),sh=Math.max(1,Math.round(bmp.height*rh));
-      const canvas=document.createElement('canvas');
-      const scale=Math.min(4,1800/sw);
-      canvas.width=Math.round(sw*scale);canvas.height=Math.round(sh*scale);
-      const ctx=canvas.getContext('2d',{willReadFrequently:true});
-      ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
-      ctx.drawImage(bmp,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
-      const variants=[canvas];
-      const bw=document.createElement('canvas');bw.width=canvas.width;bw.height=canvas.height;
-      const bc=bw.getContext('2d',{willReadFrequently:true});bc.drawImage(canvas,0,0);
-      const pixels=bc.getImageData(0,0,bw.width,bw.height);
-      for(let j=0;j<pixels.data.length;j+=4){
-        const r=pixels.data[j],g=pixels.data[j+1],b=pixels.data[j+2];
-        const yellow=r>120&&g>95&&r>b*1.25&&g>b*1.2;
-        const v=yellow?0:255;
-        pixels.data[j]=pixels.data[j+1]=pixels.data[j+2]=v;
-      }
-      bc.putImageData(pixels,0,0);variants.push(bw);
-      for(let v=0;v<variants.length;v++){
-        status('Analyse de la puissance : essai '+(k*2+v+1)+'/6…');
-        const result=await timeout(window.Tesseract.recognize(variants[v],'eng',{
-          tessedit_pageseg_mode:6,
-          tessedit_char_whitelist:'0123456789.,Mm '
-        }),45000,'Reconnaissance trop longue.');
-        const txt=(result.data.text||'').toUpperCase().replace(/,/g,'.');
-        readings.push(txt.trim().replace(/\s+/g,' '));
-        // Le M est parfois lu comme absent, mais le séparateur décimal doit être présent.
-        for(const m of txt.matchAll(/(?:^|[^\d])(\d{1,3})\s*[.]\s*(\d{1,3})\s*M?(?=$|[^\d])/g)){
-          const raw=m[1]+'.'+m[2]+'M';
-          if(t1ParsePower(raw))found.push(raw);
-        }
-      }
-      if(found.length)break;
-    }
-    if(bmp.close)bmp.close();
-    const unique=[...new Set(found)];
-    if(unique.length!==1){
-      const debug=readings.filter(Boolean).slice(0,4).join(' | ').slice(0,130);
-      throw new Error((unique.length?'Lectures différentes : '+unique.join(' / '):'Puissance non reconnue')+(debug?' (texte lu : '+debug+')':''));
-    }
-    const value=t1ParsePower(unique[0]);
-    if(input.files[0]!==file)return; // Ignorer une ancienne lecture si une autre capture a été choisie.
-    document.getElementById('t1Power').value=t1FormatPower(value);
-    t1PowerChanged();
-    status('Puissance détectée : '+t1FormatPower(value)+'. Vérifie avant de valider.');
-  }catch(e){
-    console.error('Lecture T1 :',e);
-    if(input.files[0]!==file)return;
-    status((e && e.message?e.message:'Erreur lors de la lecture.')+' Tu peux saisir la puissance dans la case, en conservant la capture.',true);
-  }finally{
-    if(input.files[0]===file)t1PowerChanged();
-  }
+  const powerValid=!!t1ParsePower(input.value);
+  const valid=powerValid
+    &&!!document.getElementById('t1Team1Type').value
+    &&!!t1ParsePower(document.getElementById('t1Team2Power').value)
+    &&!!document.getElementById('t1Team2Type').value;
+  if(btn)btn.disabled=t1Busy||!valid;
+  input.setAttribute('aria-invalid',input.value&&!powerValid?'true':'false');
 }
 async function t1Submit(){
   if(t1Busy)return;
   const select=document.getElementById('t1Player'),id=Number(select.value);
   const p=t1Players.find(x=>x.id===id),power=t1ParsePower(document.getElementById('t1Power').value);
+  const team1Type=document.getElementById('t1Team1Type').value;
+  const team2Power=t1ParsePower(document.getElementById('t1Team2Power').value);
+  const team2Type=document.getElementById('t1Team2Type').value;
   if(!t1CurrentRound){t1Status('Aucun recensement T1 ouvert.',true);return;}
   if(!p){t1Status('Sélectionne ton pseudo.',true);return;}
   if(!power){t1Status('Vérifie la puissance : indique par exemple 18.31 ou 18.31M.',true);return;}
-  const file=document.getElementById('t1Image').files[0];
-  if(!file){t1Status('Ajoute une capture d’écran pour déclarer ta puissance.',true);return;}
-  if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>5*1024*1024){t1Status('Capture invalide (5 Mo max).',true);return;}
-  if(!confirm(p.name+' : confirmer ta puissance T1 de '+t1FormatPower(power)+' ? Tu ne pourras plus la modifier.'))return;
+  if(!['tank','avion','missile','hybride'].includes(team1Type)){t1Status('Choisis le type de ton équipe 1.',true);return;}
+  if(!team2Power){t1Status('Vérifie la puissance de ton équipe 2.',true);return;}
+  if(!['tank','avion','missile','hybride'].includes(team2Type)){t1Status('Choisis le type de ton équipe 2.',true);return;}
+  if(!confirm(p.name+' : confirmer équipe 1 ('+t1FormatPower(power)+', '+t1TeamTypeLabel(team1Type)+') et équipe 2 ('+t1FormatPower(team2Power)+', '+t1TeamTypeLabel(team2Type)+') ? Tu ne pourras plus modifier cette déclaration.'))return;
   t1Busy=true;document.getElementById('t1SubmitBtn').disabled=true;
-  let imagePath=null;
   try{
-    if(file){
-      t1Status('Envoi de la capture…');
-      imagePath=crypto.randomUUID()+'.'+({ 'image/png':'png','image/jpeg':'jpg','image/webp':'webp'}[file.type]);
-      const up=await sb.storage.from('t1-captures').upload(imagePath,file,{contentType:file.type,upsert:false});
-      if(up.error)throw up.error;
-    }
-    t1Status('Enregistrement de la puissance…');
-    const {error}=await sb.rpc('t1_submit_once',{p_participant_id:id,p_power:power,p_image_path:imagePath,p_round_id:t1CurrentRound.id});
+    t1Status('Enregistrement des puissances…');
+    const {error}=await sb.rpc('t1_submit_once_v2',{
+      p_participant_id:id,p_power:power,p_image_path:null,p_round_id:t1CurrentRound.id,
+      p_team1_type:team1Type,p_team2_power:team2Power,p_team2_type:team2Type
+    });
     if(error)throw error;
     t1Entries[id]=true;localStorage.setItem(participationKey('t1',t1CurrentRound.id),String(id));document.getElementById('t1Form').style.display='none';
     document.getElementById('t1Success').style.display='block';
-    document.getElementById('t1SuccessText').textContent=p.name+' — '+t1FormatPower(power)+' enregistrés.';
+    document.getElementById('t1SuccessText').textContent=p.name+' — équipe 1 : '+t1FormatPower(power)+' ('+t1TeamTypeLabel(team1Type)+'), équipe 2 : '+t1FormatPower(team2Power)+' ('+t1TeamTypeLabel(team2Type)+') enregistrées.';
   }catch(e){
-    // Une capture orpheline peut être nettoyée ultérieurement par le staff.
     t1Status(e.code==='23505'?'Ce pseudo a déjà transmis sa puissance.':('Envoi impossible : '+e.message),true);
     await refreshT1Select();
-  }finally{t1Busy=false;document.getElementById('t1SubmitBtn').disabled=false;}
+  }finally{t1Busy=false;t1PowerChanged();}
+}
+function t1TeamTypeLabel(type){
+  return ({tank:'Tank',avion:'Avion',missile:'Missile',hybride:'Hybride',missile_hybride:'Missile hybride'})[type]||'—';
+}
+async function refreshT1PowerRoster(){
+  const roundLabel=document.getElementById('t1PowerRosterRound');
+  const roster=document.getElementById('t1PowerRoster');
+  if(!roundLabel||!roster)return;
+  roster.textContent='Chargement…';
+  if(!sb){roster.textContent='Connexion à la base de données indisponible.';return;}
+  try{
+    const {data:rounds,error:roundError}=await sb.from('t1_rounds')
+      .select('id,label,status,opened_at').order('opened_at',{ascending:false}).limit(1);
+    if(roundError)throw roundError;
+    const round=rounds?.[0];
+    roundLabel.textContent=round
+      ?(round.status==='open'?'🟢 Recensement en cours — ':'🔒 Dernier recensement — ')+round.label
+      :'Aucun recensement T1 enregistré ; puissances déjà renseignées affichées ci-dessous.';
+    let submissions=[];
+    if(round){
+      const {data,error}=await sb.from('t1_submissions')
+        .select('participant_id,power,team1_type,team2_power,team2_type').eq('round_id',round.id);
+      if(error)throw error;
+      submissions=data||[];
+    }
+    const submissionsByPlayer=new Map(submissions.map(entry=>[Number(entry.participant_id),entry]));
+    const entries=participants.map(player=>({
+      player,
+      submission:submissionsByPlayer.get(Number(player.id)),
+      power:Number(player.power_t1)||Number(submissionsByPlayer.get(Number(player.id))?.power)||0
+    })).sort((a,b)=>b.power-a.power||a.player.name.localeCompare(b.player.name,'fr',{sensitivity:'base'}));
+    if(!entries.length){
+      roster.textContent='Aucun joueur enregistré.';
+      return;
+    }
+    const table=document.createElement('table');
+    table.className='t1-power-table';
+    const head=document.createElement('thead');
+    const headerRow=document.createElement('tr');
+    ['Joueur','Puissance équipe 1','Type équipe 1','Puissance équipe 2','Type équipe 2'].forEach(label=>{
+      const th=document.createElement('th');th.textContent=label;headerRow.appendChild(th);
+    });
+    head.appendChild(headerRow);
+    const body=document.createElement('tbody');
+    entries.forEach(({player,submission,power})=>{
+      const row=document.createElement('tr');
+      const name=document.createElement('td');name.textContent=player.name;row.appendChild(name);
+      const powerCell=document.createElement('td');powerCell.className='t1-power-current';
+      const powerLabel=document.createElement('span');powerLabel.textContent=power?t1FormatPower(power):'—';powerCell.appendChild(powerLabel);
+      if(isAdminOrStaff()){
+        const editButton=document.createElement('button');editButton.type='button';editButton.className='btn';
+        editButton.textContent='✏️';editButton.title='Corriger la puissance T1 de '+player.name;
+        editButton.setAttribute('aria-label',editButton.title);
+        editButton.onclick=()=>correctT1RosterPower(player.id);
+        powerCell.appendChild(editButton);
+      }
+      row.appendChild(powerCell);
+      [t1TeamTypeLabel(submission?.team1_type),submission?.team2_power?t1FormatPower(submission.team2_power):'—',t1TeamTypeLabel(submission?.team2_type)]
+        .forEach(value=>{const cell=document.createElement('td');cell.textContent=value;row.appendChild(cell);});
+      body.appendChild(row);
+    });
+    table.append(head,body);
+    roster.replaceChildren(table);
+  }catch(error){
+    roundLabel.textContent='';
+    roster.textContent='Chargement des puissances impossible : '+error.message;
+  }
+}
+async function correctT1RosterPower(participantId){
+  if(!isAdminOrStaff())return;
+  const player=participants.find(entry=>Number(entry.id)===Number(participantId));
+  if(!player)return;
+  const existing=player.power_t1?(Number(player.power_t1)/1e6).toFixed(2):'';
+  const raw=prompt('Puissance T1 en millions pour '+player.name+' (ex. 51.00) :',existing);
+  if(raw===null)return;
+  const cleaned=raw.trim();
+  const power=cleaned?t1ParsePower(/[a-z]/i.test(cleaned)?cleaned:cleaned+'M'):null;
+  if(!power){alert('Puissance invalide : indique par exemple 51.00 (en millions).');return;}
+  if(Number(player.power_t1)===power)return;
+  if(!sb){alert('Connexion Supabase indisponible.');return;}
+  try{
+    const {data,error}=await sb.from('participants').update({power_t1:power})
+      .eq('id',player.id).select('id,power_t1').maybeSingle();
+    if(error)throw error;
+    if(!data)throw new Error('La base n’a modifié aucune ligne (autorisations RLS possibles).');
+    const {data:verified,error:readError}=await sb.from('participants').select('power_t1')
+      .eq('id',player.id).maybeSingle();
+    if(readError)throw readError;
+    if(!verified||Math.abs(Number(verified.power_t1)-power)>0.5){
+      throw new Error('La vérification après enregistrement a échoué.');
+    }
+    player.power_t1=Number(verified.power_t1);
+    await refreshT1PowerRoster();
+    if(typeof renderStats==='function')renderStats();
+    toast('⚡ Puissance enregistrée : '+t1FormatPower(player.power_t1));
+  }catch(error){
+    console.error('Erreur correction puissance T1',error);
+    alert('Impossible d’enregistrer la puissance de '+player.name+' : '+(error.message||error));
+  }
 }
 // Nombre de déclarations pour le recensement T1 actuellement ouvert.
 let t1CounterRequestInFlight=false;
@@ -5522,6 +5663,46 @@ Object.assign(pollTranslations, {"— Sélectionne ton pseudo —": "— Select 
 Object.assign(pollTranslationsEs, {"— Sélectionne ton pseudo —": "— Selecciona tu nombre de jugador —", "Prends une capture de l’écran de formation de ton équipe T1, avec ": "Haz una captura de la formación de tu equipo T1, con ", "la puissance totale bien visible en haut": "la potencia total claramente visible arriba", " (ici : ": " (aquí: ", "). Voici un exemple :": "). Aquí tienes un ejemplo:", "Sondage en cours — ": "Encuesta en curso — ", "Sondage clos": "Encuesta cerrada", "Ce sondage est clôturé. Reviens à la prochaine session.": "Esta encuesta está cerrada. Vuelve en la próxima sesión.", "Aucun recensement ouvert. Reviens à la prochaine session.": "No hay ningún censo abierto. Vuelve en la próxima sesión."});
 Object.assign(pollTranslationsDe, {"— Sélectionne ton pseudo —": "— Wähle deinen Spielernamen —", "Prends une capture de l’écran de formation de ton équipe T1, avec ": "Mache einen Screenshot deiner T1-Teamaufstellung, auf dem ", "la puissance totale bien visible en haut": "die Gesamtstärke oben deutlich sichtbar ist", " (ici : ": " (hier: ", "). Voici un exemple :": "). Hier ist ein Beispiel:", "Sondage en cours — ": "Umfrage läuft — ", "Sondage clos": "Umfrage geschlossen", "Ce sondage est clôturé. Reviens à la prochaine session.": "Diese Umfrage ist geschlossen. Komm zur nächsten Runde zurück.", "Aucun recensement ouvert. Reviens à la prochaine session.": "Keine Erfassung geöffnet. Komm zur nächsten Runde zurück."});
 Object.assign(pollTranslationsIt, {"— Sélectionne ton pseudo —": "— Seleziona il tuo nome giocatore —", "Prends une capture de l’écran de formation de ton équipe T1, avec ": "Fai uno screenshot della formazione della tua squadra T1, con ", "la puissance totale bien visible en haut": "la potenza totale ben visibile in alto", " (ici : ": " (qui: ", "). Voici un exemple :": "). Ecco un esempio:", "Sondage en cours — ": "Sondaggio in corso — ", "Sondage clos": "Sondaggio chiuso", "Ce sondage est clôturé. Reviens à la prochaine session.": "Questo sondaggio è chiuso. Torna alla prossima sessione.", "Aucun recensement ouvert. Reviens à la prochaine session.": "Nessun censimento aperto. Torna alla prossima sessione."});
+const t1FormTranslations={
+ en:{'Recensement des puissances':'Power survey','Pour déclarer tes puissances, ajoute une capture d’écran de ton équipe 1. Les puissances seront reconnues automatiquement. Une seule déclaration par joueur et par recensement.':'To report your powers, upload a screenshot of team 1. Power will be detected automatically. One submission per player per survey.','⚡ Puissance de l’équipe 1 détectée (modifiable)':'⚡ Detected team 1 power (editable)','✓ Valider mes puissances':'✓ Submit my powers','Puissances enregistrées !':'Powers saved!','Type de l’équipe 1':'Team 1 type','Type de l’équipe 2':'Team 2 type','Puissance de l’équipe 2':'Team 2 power','— Choisir un type —':'— Choose a type —','Tank':'Tank','Avion':'Aircraft','Missile':'Missile','Hybride':'Hybrid','Missile hybride':'Hybrid missile','Choisis le type de ton équipe 1.':'Choose your team 1 type.','Vérifie la puissance de ton équipe 2.':'Check your team 2 power.','Choisis le type de ton équipe 2.':'Choose your team 2 type.'},
+ es:{'Recensement des puissances':'Censo de potencias','Pour déclarer tes puissances, ajoute une capture d’écran de ton équipe 1. Les puissances seront reconnues automatiquement. Une seule déclaration par joueur et par recensement.':'Para declarar tus potencias, sube una captura de pantalla de tu equipo 1. Las potencias se detectarán automáticamente. Una declaración por jugador y por censo.','⚡ Puissance de l’équipe 1 détectée (modifiable)':'⚡ Potencia del equipo 1 detectada (editable)','✓ Valider mes puissances':'✓ Enviar mis potencias','Puissances enregistrées !':'¡Potencias guardadas!','Type de l’équipe 1':'Tipo del equipo 1','Type de l’équipe 2':'Tipo del equipo 2','Puissance de l’équipe 2':'Potencia del equipo 2','— Choisir un type —':'— Elige un tipo —','Tank':'Tanque','Avion':'Avión','Missile':'Misil','Hybride':'Híbrido','Missile hybride':'Misil híbrido','Choisis le type de ton équipe 1.':'Elige el tipo de tu equipo 1.','Vérifie la puissance de ton équipe 2.':'Comprueba la potencia de tu equipo 2.','Choisis le type de ton équipe 2.':'Elige el tipo de tu equipo 2.'},
+ de:{'Recensement des puissances':'Krafterfassung','Pour déclarer tes puissances, ajoute une capture d’écran de ton équipe 1. Les puissances seront reconnues automatiquement. Une seule déclaration par joueur et par recensement.':'Um deine Kräfte zu melden, lade einen Screenshot von Team 1 hoch. Die Kräfte werden automatisch erkannt. Eine Meldung pro Spieler und Erfassung.','⚡ Puissance de l’équipe 1 détectée (modifiable)':'⚡ Erkannte Kraft von Team 1 (bearbeitbar)','✓ Valider mes puissances':'✓ Meine Kräfte absenden','Puissances enregistrées !':'Kräfte gespeichert!','Type de l’équipe 1':'Typ von Team 1','Type de l’équipe 2':'Typ von Team 2','Puissance de l’équipe 2':'Kraft von Team 2','— Choisir un type —':'— Typ auswählen —','Tank':'Panzer','Avion':'Flugzeug','Missile':'Rakete','Hybride':'Hybrid','Missile hybride':'Hybridrakete','Choisis le type de ton équipe 1.':'Wähle den Typ deines Teams 1.','Vérifie la puissance de ton équipe 2.':'Prüfe die Kraft deines Teams 2.','Choisis le type de ton équipe 2.':'Wähle den Typ deines Teams 2.'},
+ it:{'Recensement des puissances':'Censimento potenze','Pour déclarer tes puissances, ajoute une capture d’écran de ton équipe 1. Les puissances seront reconnues automatiquement. Une seule déclaration par joueur et par recensement.':'Per dichiarare le tue potenze, carica uno screenshot della squadra 1. Le potenze verranno rilevate automaticamente. Una dichiarazione per giocatore e censimento.','⚡ Puissance de l’équipe 1 détectée (modifiable)':'⚡ Potenza della squadra 1 rilevata (modificabile)','✓ Valider mes puissances':'✓ Invia le mie potenze','Puissances enregistrées !':'Potenze salvate!','Type de l’équipe 1':'Tipo della squadra 1','Type de l’équipe 2':'Tipo della squadra 2','Puissance de l’équipe 2':'Potenza della squadra 2','— Choisir un type —':'— Scegli un tipo —','Tank':'Carro armato','Avion':'Aereo','Missile':'Missile','Hybride':'Ibrido','Missile hybride':'Missile ibrido','Choisis le type de ton équipe 1.':'Scegli il tipo della tua squadra 1.','Vérifie la puissance de ton équipe 2.':'Controlla la potenza della tua squadra 2.','Choisis le type de ton équipe 2.':'Scegli il tipo della tua squadra 2.'}
+};
+Object.assign(pollTranslations,t1FormTranslations.en);
+Object.assign(pollTranslationsEs,t1FormTranslations.es);
+Object.assign(pollTranslationsDe,t1FormTranslations.de);
+Object.assign(pollTranslationsIt,t1FormTranslations.it);
+const t1NoImageTranslations={
+ en:{
+  'Pour déclarer tes puissances, indique la puissance et le type de chacune de tes deux équipes. Une déclaration par joueur et par recensement.':'To report your powers, enter the power and type of both teams. One submission per player per survey.',
+  '⚡ Puissance de l’équipe 1':'⚡ Team 1 power',
+  'Saisis la puissance de ton équipe 1 en millions (ex. 18.31M). Tu peux utiliser un point ou une virgule.':'Enter your team 1 power in millions (e.g. 18.31M). You can use a dot or comma.',
+  'Enregistrement des puissances…':'Saving powers…'
+ },
+ es:{
+  'Pour déclarer tes puissances, indique la puissance et le type de chacune de tes deux équipes. Une déclaration par joueur et par recensement.':'Para declarar tus potencias, indica la potencia y el tipo de tus dos equipos. Un envío por jugador y censo.',
+  '⚡ Puissance de l’équipe 1':'⚡ Potencia del equipo 1',
+  'Saisis la puissance de ton équipe 1 en millions (ex. 18.31M). Tu peux utiliser un point ou une virgule.':'Introduce la potencia de tu equipo 1 en millones (ej. 18.31M). Puedes usar punto o coma.',
+  'Enregistrement des puissances…':'Guardando potencias…'
+ },
+ de:{
+  'Pour déclarer tes puissances, indique la puissance et le type de chacune de tes deux équipes. Une déclaration par joueur et par recensement.':'Gib die Stärke und den Typ beider Teams an. Eine Meldung pro Spieler und Erfassung.',
+  '⚡ Puissance de l’équipe 1':'⚡ Kraft von Team 1',
+  'Saisis la puissance de ton équipe 1 en millions (ex. 18.31M). Tu peux utiliser un point ou une virgule.':'Gib die Kraft von Team 1 in Millionen ein (z. B. 18,31M). Punkt oder Komma ist möglich.',
+  'Enregistrement des puissances…':'Kräfte werden gespeichert…'
+ },
+ it:{
+  'Pour déclarer tes puissances, indique la puissance et le type de chacune de tes deux équipes. Une déclaration par joueur et par recensement.':'Per dichiarare le tue potenze, indica potenza e tipo di entrambe le squadre. Un invio per giocatore e censimento.',
+  '⚡ Puissance de l’équipe 1':'⚡ Potenza della squadra 1',
+  'Saisis la puissance de ton équipe 1 en millions (ex. 18.31M). Tu peux utiliser un point ou une virgule.':'Inserisci la potenza della squadra 1 in milioni (es. 18.31M). Puoi usare il punto o la virgola.',
+  'Enregistrement des puissances…':'Salvataggio potenze…'
+ }
+};
+Object.assign(pollTranslations,t1NoImageTranslations.en);
+Object.assign(pollTranslationsEs,t1NoImageTranslations.es);
+Object.assign(pollTranslationsDe,t1NoImageTranslations.de);
+Object.assign(pollTranslationsIt,t1NoImageTranslations.it);
 const pollOriginalText=new WeakMap(),pollOriginalAttrs=new WeakMap();
 const pollRoots=()=>['t1PollOverlay','canyonPollOverlay','pollOverlay'].map(id=>document.getElementById(id)).filter(Boolean);
 function translatePollString(source){
@@ -5573,6 +5754,12 @@ function applyPollTranslations(){
    const original=pollOriginalText.get(node),translated=translatePollString(original);
    if(node.nodeValue!==translated)node.nodeValue=translated;
   }
+  root.querySelectorAll('#t1Team1Type option,#t1Team2Type option').forEach(option=>{
+   const textNode=option.firstChild;if(!textNode)return;
+   if(!pollOriginalText.has(textNode))pollOriginalText.set(textNode,textNode.nodeValue);
+   const translated=translatePollString(pollOriginalText.get(textNode));
+   if(textNode.nodeValue!==translated)textNode.nodeValue=translated;
+  });
   root.querySelectorAll('[placeholder],[alt],[title],[aria-label]').forEach(el=>{
    if(!pollOriginalAttrs.has(el))pollOriginalAttrs.set(el,{});
    const originals=pollOriginalAttrs.get(el);

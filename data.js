@@ -27,6 +27,7 @@ const PERM_SECTIONS=[
   {id:'secTirage',      label:'Tirage',        icon:'🚂'},
   {id:'secHist',        label:'Historique',    icon:'📋'},
   {id:'sectionParticipants', label:'Participants', icon:'👥'},
+  {id:'sectionPowers',  label:'Puissances',    icon:'⚡'},
   {id:'sectionStats',   label:'Statistiques',  icon:'📊'},
   {id:'sectionPolls',   label:'Sondages',      icon:'🗳️'},
   {id:'secEvents',      label:'Événements',    icon:'⚔️'},
@@ -38,8 +39,8 @@ const PERM_SECTIONS=[
 ];
 
 const DEFAULT_PERM={
-  staff: {secTirage:true,secHist:true,sectionParticipants:true,sectionStats:true,secEvents:true,secArchive:true,secCanyon:true},
-  member:{secTirage:true,secHist:true,sectionParticipants:false,sectionStats:false,secEvents:true,secArchive:true,secCanyon:true}
+  staff: {secTirage:true,secHist:true,sectionParticipants:true,sectionPowers:true,sectionStats:true,secEvents:true,secArchive:true,secCanyon:true},
+  member:{secTirage:true,secHist:true,sectionParticipants:false,sectionPowers:false,sectionStats:false,secEvents:true,secArchive:true,secCanyon:true}
 };
 
 const POLL_ROLE_MAP = { present:'starter', remplacant:'sub', absent:'none' };
