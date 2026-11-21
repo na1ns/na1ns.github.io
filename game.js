@@ -140,8 +140,20 @@ function renderTddSlotStaff(){
 
 function tddBalancedSlots(){
  const capTit=CATEGORIES.filter(c=>c.key!=='SUB').reduce((n,c)=>n+c.size,0);
- const starters=sortTddPlayers(participants.filter(p=>evRoles[p.id]==='starter'));
- const subs=sortTddPlayers(participants.filter(p=>evRoles[p.id]==='sub'));
+ let starters=participants.filter(p=>evRoles[p.id]==='starter');
+ let subs=participants.filter(p=>evRoles[p.id]==='sub');
+ let overflow=[];
+ if(evFairRotation){
+   starters=buildTddFairRank(starters);
+   subs=buildTddFairRank(subs);
+   overflow=starters.slice(capTit);
+   starters=starters.slice(0,capTit);
+ }else{
+   starters=sortTddPlayers(starters);
+   subs=sortTddPlayers(subs);
+   overflow=starters.slice(capTit);
+   starters=starters.slice(0,capTit);
+ }
  const teams={A:{starters:[],subs:[]},B:{starters:[],subs:[]}};
  const placed=new Set();
  const assign=(pool,kind,cap)=>{
@@ -155,9 +167,10 @@ function tddBalancedSlots(){
    }
  };
  const teamPower=t=>[...t.starters,...t.subs].reduce((n,p)=>n+(p.power_t1||0),0);
- assign(starters,'starters',capTit);assign(subs,'subs',TOTAL_SUBS);
- // Titulaires excédentaires : places de remplaçants, sans dépasser les 10 par équipe.
- assign(starters.filter(p=>!placed.has(p.id)),'subs',TOTAL_SUBS);
+ assign(starters,'starters',capTit);
+ // Les titulaires excédentaires sont toujours placés comme remplaçants
+ // avant les joueurs déclarés remplaçants.
+ assign([...overflow,...subs],'subs',TOTAL_SUBS);
  return {A:buildOneTeam(teams.A.starters,teams.A.subs,true),B:buildOneTeam(teams.B.starters,teams.B.subs,true)};
 }
 
@@ -186,10 +199,7 @@ function tddAsymmetricSlotTeams(players){
 }
 
 let evAsymMode=false;
-// Rotation équitable des joueurs non retenus, conservée d'une semaine à l'autre.
-let tddNonRetenus = {};
-let tddNonRetenusWeek = '';
-let tddFairStats={counts:{},starters:{},week:''};
+let tddFairStats={counts:{},starters:{},history:{},week:''};
 let weeklyDrawsData=[];
 let drawBuffer=null; // Mémoire tampon 48h post-archivage (coffres_snapshot de la semaine passée)
 
@@ -632,6 +642,7 @@ async function initPollPage(){
         {event:'*',schema:'public',table:'tdd_poll'},
         payload=>{
           const r=payload.new||payload.old;
+          if(r?.session_id&&availabilityState.tdd?.id&&r.session_id!==availabilityState.tdd.id)return;
           if(payload.eventType==='DELETE'){
             if(r)delete pollResults[r.participant_id];
           }else if(r){
@@ -673,7 +684,9 @@ async function initPollPage(){
     return;
   }
   // Charger les votes existants (non critique)
-  const pollRes = await sb.from('tdd_poll').select('participant_id,response');
+  let pollQuery=sb.from('tdd_poll').select('participant_id,response');
+  if(availabilityState.tdd?.id)pollQuery=pollQuery.eq('session_id',availabilityState.tdd.id);
+  const pollRes=await pollQuery;
   if(pollRes.error){
     console.warn('Poll: erreur chargement votes (non bloquant):',pollRes.error);
   }else{
@@ -839,7 +852,9 @@ function applyTddPollRolesToEvent(){
 async function loadPollResults(){
   if(!sb) return;
   try{
-    const {data,error} = await sb.from('tdd_poll').select('participant_id,response');
+    let query=sb.from('tdd_poll').select('participant_id,response');
+    if(availabilityState.tdd?.id)query=query.eq('session_id',availabilityState.tdd.id);
+    const {data,error}=await query;
     if(error)throw error;
     pollResults = {};
     (data||[]).forEach(function(r){ pollResults[r.participant_id] = r.response; });
@@ -940,10 +955,10 @@ async function staffCorrectPoll(id,name,select){
   if(!hash){select.value=old;return;}
   select.disabled=true;
   try{
-    
-    const {error}=await sb.rpc('availability_correct_v3',{
+    if(!availabilityState.tdd?.id)throw new Error('Aucune session TDD active.');
+    const {error}=await sb.rpc('tdd_staff_update_response_v1',{
       p_username:currentUser.username,p_account_hash:hash,
-      p_kind:'tdd',p_participant_id:id,p_response:next||null
+      p_session_id:availabilityState.tdd.id,p_participant_id:id,p_response:next||null
     });
     if(error) throw error;
     if(next)pollResults[id]=next;else delete pollResults[id];
@@ -1429,34 +1444,12 @@ function getTddWeekKey(date=new Date()){
   const week=1+Math.round(((d-first)/86400000-3+(first.getDay()+6)%7)/7);
   return d.getFullYear()+'-W'+String(week).padStart(2,'0');
 }
-async function loadTddNonRetenus(){
-  if(!sb)return;
-  try{const{data}=await sb.from('app_config').select('value').eq('key',TDD_NON_RETENUS_CONFIG_KEY).maybeSingle();if(data&&data.value){tddNonRetenus=data.value.counts||{};tddNonRetenusWeek=data.value.week||'';}}catch(e){}
-  renderTddNonRetenus();
-}
-async function saveTddNonRetenus(){
-  if(!sb)return;
-  await sb.from('app_config').upsert({key:TDD_NON_RETENUS_CONFIG_KEY,value:{counts:tddNonRetenus,week:tddNonRetenusWeek},updated_at:new Date().toISOString()});
-}
-function renderTddNonRetenus(){
-  const summary=document.getElementById('evFairnessSummary'),list=document.getElementById('evFairnessList');
-  const entries=Object.entries(tddNonRetenus).map(([id,count])=>({p:participants.find(x=>String(x.id)===String(id)),count:Number(count)||0})).filter(x=>x.p&&x.count>0).sort((a,b)=>b.count-a.count||a.p.name.localeCompare(b.p.name));
-  if(summary)summary.textContent=entries.length?`🔄 Rotation : ${entries.length} joueur${entries.length>1?'s':''} à rattraper`:'🔄 Rotation : aucun joueur en attente';
-  if(list)list.innerHTML=entries.length?'<div style="padding:8px 12px;border:1px solid rgba(255,184,77,0.2);background:rgba(255,184,77,0.05);border-radius:var(--radius-lg);font-size:11px;color:var(--text3)"><strong style="color:var(--amber)">🔄 Rotation des non-retenus</strong> — les joueurs non pris sont automatiquement enregistrés et prioritaires la semaine suivante.<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'+entries.map(x=>`<span style="padding:3px 7px;border:1px solid var(--border2);border-radius:99px;color:var(--text)">${x.p.name} <b style="color:var(--amber)">×${x.count}</b></span>`).join('')+'</div></div>':'';
-}
-async function recordTddNonRetenus(registeredIds,placedIds){
-  const week=getTddWeekKey(); if(tddNonRetenusWeek===week)return;
-  const excluded=registeredIds.filter(id=>!placedIds.has(id));
-  excluded.forEach(id=>{tddNonRetenus[id]=Number(tddNonRetenus[id]||0)+1;});
-  tddNonRetenusWeek=week; await saveTddNonRetenus(); renderTddNonRetenus();
-  if(excluded.length)toast(`🔄 ${excluded.length} joueur${excluded.length>1?'s':''} non retenu${excluded.length>1?'s':''} enregistré${excluded.length>1?'s':''} pour la rotation`);
-}
-async function resetTddNonRetenus(){
-  if(!confirm('Réinitialiser complètement la rotation des joueurs non retenus ?'))return;
-  tddNonRetenus={};tddNonRetenusWeek='';await saveTddNonRetenus();renderTddNonRetenus();toast('♻️ Rotation des non-retenus réinitialisée');
-}
 function sortTddPlayers(players){
-  return [...players].sort((a,b)=>{const fa=Number(tddNonRetenus[a.id]||0),fb=Number(tddNonRetenus[b.id]||0);if(fa!==fb)return fb-fa;const pa=a.ev_priority?1:0,pb=b.ev_priority?1:0;if(pa!==pb)return pb-pa;return (b.power_t1||0)-(a.power_t1||0);});
+  return [...players].sort((a,b)=>{
+    const pa=a.ev_priority?1:0,pb=b.ev_priority?1:0;
+    if(pa!==pb)return pb-pa;
+    return (b.power_t1||0)-(a.power_t1||0)||String(a.name||'').localeCompare(String(b.name||''));
+  });
 }
 
 async function loadTddFairStats(){
@@ -1464,7 +1457,12 @@ async function loadTddFairStats(){
   try{
     const {data}=await sb.from('app_config').select('value').eq('key',TDD_FAIR_ROTATION_KEY).maybeSingle();
     if(data&&data.value){
-      tddFairStats={counts:data.value.counts||{},starters:data.value.starters||{},week:data.value.week||''};
+      tddFairStats={
+        counts:data.value.counts||{},
+        starters:data.value.starters||{},
+        history:data.value.history||{},
+        week:data.value.week||''
+      };
     }
   }catch(e){}
   updateTddFairRotationUi();
@@ -1486,18 +1484,50 @@ function toggleTddFairRotation(){
   toast(evFairRotation?'🔄 Rotation équitable ON — compatible avec EL priorité':'🔄 Rotation équitable OFF');
 }
 function getTddFairKey(){return getTddWeekKey();}
+function getTddFairHistoryWeeks(){
+  return Object.keys(tddFairStats.history||{}).sort().reverse();
+}
+function getTddFairRecentCounts(){
+  const history=tddFairStats.history||{};
+  const weeks=getTddFairHistoryWeeks().slice(0,8);
+  if(!weeks.length){
+    return {
+      counts:tddFairStats.counts||{},
+      starters:tddFairStats.starters||{}
+    };
+  }
+  const counts={}, starters={};
+  weeks.forEach(week=>{
+    (history[week]?.placed||[]).forEach(id=>{
+      counts[id]=Number(counts[id]||0)+1;
+    });
+    (history[week]?.starters||[]).forEach(id=>{
+      starters[id]=Number(starters[id]||0)+1;
+    });
+  });
+  return {counts,starters};
+}
+function tddFairRandomRank(playerId,week){
+  const text=String(week)+'|'+String(playerId);
+  let hash=2166136261;
+  for(let i=0;i<text.length;i++){
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash,16777619);
+  }
+  return (hash>>>0);
+}
 function buildTddFairRank(players){
-  const counts=tddFairStats.counts||{}, starters=tddFairStats.starters||{};
+  const recent=getTddFairRecentCounts();
+  const counts=recent.counts, starters=recent.starters;
+  const week=getTddFairKey();
   return [...players].sort((a,b)=>{
     const ac=Number(counts[a.id]||0), bc=Number(counts[b.id]||0);
     if(ac!==bc)return ac-bc;
     const as=Number(starters[a.id]||0), bs=Number(starters[b.id]||0);
     if(as!==bs)return as-bs;
-    const af=Number(tddNonRetenus[a.id]||0), bf=Number(tddNonRetenus[b.id]||0);
-    if(af!==bf)return bf-af;
-    const ap=a.ev_priority?1:0,bp=b.ev_priority?1:0;
-    if(ap!==bp)return bp-ap;
-    return (b.power_t1||0)-(a.power_t1||0);
+    const ra=tddFairRandomRank(a.id,week), rb=tddFairRandomRank(b.id,week);
+    if(ra!==rb)return ra-rb;
+    return String(a.name||'').localeCompare(String(b.name||''));
   });
 }
 async function recordTddFairParticipation(placedIds,starterIds){
@@ -1507,6 +1537,10 @@ async function recordTddFairParticipation(placedIds,starterIds){
   // Une seule comptabilisation automatique par semaine pour éviter qu'un second clic
   // sur « équilibrer » ne fasse artificiellement monter les compteurs.
   if(tddFairStats.week===week)return;
+  tddFairStats.history=tddFairStats.history||{};
+  tddFairStats.history[week]={placed:[...ids],starters:[...starterIds]};
+  const weeks=getTddFairHistoryWeeks();
+  weeks.slice(8).forEach(oldWeek=>delete tddFairStats.history[oldWeek]);
   ids.forEach(id=>{tddFairStats.counts[id]=Number(tddFairStats.counts[id]||0)+1;});
   starterIds.forEach(id=>{tddFairStats.starters[id]=Number(tddFairStats.starters[id]||0)+1;});
   tddFairStats.week=week;
@@ -1587,7 +1621,6 @@ async function _loadAllImpl(){
     renderHistFiltered();
     renderArchiveList();
     await Promise.all([
-      loadTddNonRetenus(),
       loadTddFairStats(),
       loadCanyonNonRetenus()
     ]);
@@ -1634,7 +1667,9 @@ function subscribeRT(){
       // n'a jamais ouvert la page publique du sondage sur cet appareil.
       await fetchAvailabilitySession('tdd');
       if(!availabilityState.tdd){updatePollEvBanner();return;}
-      const {data,error}=await sb.from('tdd_poll').select('participant_id,response');
+      let query=sb.from('tdd_poll').select('participant_id,response');
+      query=query.eq('session_id',availabilityState.tdd.id);
+      const {data,error}=await query;
       if(error)throw error;
       pollResults={};
       (data||[]).forEach(r=>{pollResults[r.participant_id]=r.response;});
@@ -1648,6 +1683,7 @@ function subscribeRT(){
   setInterval(()=>{if(currentUser&&document.visibilityState!=='hidden')refreshTddSelectionFromVotes();},10000);
   sb.channel('tdd_poll_main').on('postgres_changes',{event:'*',schema:'public',table:'tdd_poll'},(payload)=>{
     const r=payload.new||payload.old;
+    if(r?.session_id&&availabilityState.tdd?.id&&r.session_id!==availabilityState.tdd.id)return;
     if(payload.eventType==='DELETE'){if(r)delete pollResults[r.participant_id];}
     else if(r){pollResults[r.participant_id]=r.response;}
     updatePollEvBanner();
@@ -1921,7 +1957,9 @@ async function archiveWeekFromParticipants(){
   setBusy(true);
   const now=new Date().toISOString();
   // Récupérer les réponses du sondage pour les archiver avec la semaine
-  const {data:pollSnap} = await sb.from('tdd_poll').select('participant_id,response');
+  let pollSnapQuery=sb.from('tdd_poll').select('participant_id,response');
+  if(availabilityState.tdd?.id)pollSnapQuery=pollSnapQuery.eq('session_id',availabilityState.tdd.id);
+  const {data:pollSnap}=await pollSnapQuery;
   const pollMap = {};
   (pollSnap||[]).forEach(r=>{ pollMap[r.participant_id]=r.response; });
 
@@ -4675,12 +4713,13 @@ function renderTddFairResultStats(starters,placedIds){
   const starterPlacedIds=[...placedIds].filter(id=>evRoles[id]==='starter');
   const starterAsSubIds=[...placedIds].filter(id=>evRoles[id]==='starter' && ['A','B'].some(t=>evTeams?.[t]?.SUB?.some(p=>p.id===id)));
   const realSubIds=[...placedIds].filter(id=>evRoles[id]==='sub');
-  const avg=starters.length?starters.reduce((sum,p)=>sum+Number(tddFairStats.counts?.[p.id]||0),0)/starters.length:0;
-  const green=starterPlacedIds.filter(id=>Number(tddFairStats.counts?.[id]||0)<avg).length;
-  const yellow=starterPlacedIds.filter(id=>Math.abs(Number(tddFairStats.counts?.[id]||0)-avg)<0.0001).length;
-  const red=starterPlacedIds.filter(id=>Number(tddFairStats.counts?.[id]||0)>avg).length;
+  const recent=getTddFairRecentCounts();
+  const avg=starters.length?starters.reduce((sum,p)=>sum+Number(recent.counts?.[p.id]||0),0)/starters.length:0;
+  const green=starterPlacedIds.filter(id=>Number(recent.counts?.[id]||0)<avg).length;
+  const yellow=starterPlacedIds.filter(id=>Math.abs(Number(recent.counts?.[id]||0)-avg)<0.0001).length;
+  const red=starterPlacedIds.filter(id=>Number(recent.counts?.[id]||0)>avg).length;
   const overflow=starterAsSubIds.length;
-  el.innerHTML=`<div style="padding:9px 12px;border:1px solid rgba(124,159,255,0.2);background:rgba(124,159,255,0.05);border-radius:var(--radius-lg);font-size:11px;color:var(--text3)"><div style="font-weight:800;color:var(--blue);margin-bottom:6px">🔄 Rotation de la semaine</div><div style="display:flex;gap:8px;flex-wrap:wrap"><span>👤 ${starterPlacedIds.length-overflow} titulaires sélectionnés selon la rotation</span><span>↪️ ${overflow} titulaire${overflow>1?'s':''} reporté${overflow>1?'s':''} en remplaçant</span><span>🔁 ${realSubIds.length} remplaçant${realSubIds.length>1?'s':''} sélectionné${realSubIds.length>1?'s':''}</span></div><div style="margin-top:7px;display:flex;gap:8px;flex-wrap:wrap"><span>🟢 ${green} sous la moyenne de participations</span><span>🟡 ${yellow} dans la moyenne</span><span>🔴 ${red} au-dessus de la moyenne</span></div></div>`;
+  el.innerHTML=`<div style="padding:9px 12px;border:1px solid rgba(124,159,255,0.2);background:rgba(124,159,255,0.05);border-radius:var(--radius-lg);font-size:11px;color:var(--text3)"><div style="font-weight:800;color:var(--blue);margin-bottom:6px">🔄 Rotation équitable sur les 8 dernières semaines</div><div style="display:flex;gap:8px;flex-wrap:wrap"><span>👤 ${starterPlacedIds.length-overflow} titulaires sélectionnés selon la rotation</span><span>↪️ ${overflow} titulaire${overflow>1?'s':''} reporté${overflow>1?'s':''} en remplaçant</span><span>🔁 ${realSubIds.length} remplaçant${realSubIds.length>1?'s':''} sélectionné${realSubIds.length>1?'s':''}</span></div><div style="margin-top:7px;display:flex;gap:8px;flex-wrap:wrap"><span>🟢 ${green} sous la moyenne de participations</span><span>🟡 ${yellow} dans la moyenne</span><span>🔴 ${red} au-dessus de la moyenne</span></div></div>`;
 }
 
 async function balanceTeams(){
@@ -4693,11 +4732,20 @@ async function balanceTeams(){
     if(!pool.length){toast('Sélectionne au moins un joueur');return;}
     evTeams=tddBalancedSlots();
     await saveEvTeamsToDB();
-    const placed=new Set(['A','B'].flatMap(k=>CATEGORIES.flatMap(c=>(evTeams[k]?.[c.key]||[]).map(p=>p.id))));
-    await recordTddNonRetenus(pool.map(p=>p.id),placed);
+    const placedIds=new Set(['A','B'].flatMap(k=>CATEGORIES.flatMap(c=>(evTeams[k]?.[c.key]||[]).map(p=>p.id))));
+    const starterPlacedIds=[];
+    if(evFairRotation){
+      ['A','B'].forEach(teamKey=>{
+        CATEGORIES.filter(cat=>cat.key!=='SUB').forEach(cat=>{
+          (evTeams[teamKey]?.[cat.key]||[]).forEach(p=>{
+            if(evRoles[p.id]==='starter')starterPlacedIds.push(p.id);
+          });
+        });
+      });
+      await recordTddFairParticipation(placedIds,starterPlacedIds);
+    }
     renderEventTeams();toast('⚖️ Équipes TDD équilibrées par horaires et sauvegardées');return;
   }
-  const allTddRegisteredIds=participants.filter(p=>evRoles[p.id]==='starter'||evRoles[p.id]==='sub').map(p=>p.id);
   let starters=sortTddPlayers(participants.filter(p=>evRoles[p.id]==='starter'));
   let subs=sortTddPlayers(participants.filter(p=>evRoles[p.id]==='sub'));
   if(evNbTeams===1){
@@ -4707,19 +4755,20 @@ async function balanceTeams(){
   const useFairRotation=evFairRotation&&!evAsymMode;
   if(useFairRotation){
     starters=buildTddFairRank(starters);
-    // Les remplaçants conservent la logique actuelle (rotation des non-retenus + puissance).
-    subs=sortTddPlayers(subs);
+    subs=buildTddFairRank(subs);
   }
   if(starters.length+subs.length<1){toast('Sélectionne au moins 1 joueur');return;}
 
   if(evNbTeams===1){
     if(useFairRotation){
       const cap=CATEGORIES.filter(c=>c.key!=='SUB').reduce((s,c)=>s+c.size,0);
-      const forced=starters.filter(p=>p.ev_priority);
-      const forcedSet=new Set(forced.map(p=>p.id));
-      starters=[...sortTddPlayers(forced),...buildTddFairRank(starters.filter(p=>!forcedSet.has(p.id)))].slice(0,cap);
+      const selectedStarters=starters.slice(0,cap);
+      const overflowStarters=starters.slice(cap);
+      const selectedSubs=[...overflowStarters,...subs].slice(0,TOTAL_SUBS);
+      evTeams={A:buildOneTeam(selectedStarters,selectedSubs,true),B:null};
+    }else{
+      evTeams={A:buildOneTeam(starters,subs),B:null};
     }
-    evTeams={A:buildOneTeam(starters,subs),B:null};
   } else if(evAsymMode){
     // Mode asymétrique : tous les joueurs triés par puissance
     // Équipe A = les N premiers (les plus forts), Équipe B = le reste
@@ -4739,14 +4788,15 @@ async function balanceTeams(){
 
     if(useFairRotation){
       // 1) La rotation équitable sélectionne d'abord les TITULAIRES.
-      //    Les REMPLAÇANTS ne peuvent compléter les places titulaires que s'il en manque.
+      //    Les titulaires excédentaires restent prioritaires comme remplaçants.
       const rankedStarters = buildTddFairRank(starters);
       const selectedStarterCount = Math.min(TOTAL_STARTER_CAP, rankedStarters.length);
       selectedStarterPool = rankedStarters.slice(0, selectedStarterCount);
       overflowStarterPool = rankedStarters.slice(selectedStarterCount);
 
-      // 2) S'il manque des titulaires, on complète les places titulaires avec les R.
-      const rankedSubs = sortTddPlayers(subs);
+      // 2) Les remplaçants déclarés complètent les places restantes.
+      //    Ils ne prennent jamais une place titulaire tant qu'il reste des titulaires déclarés.
+      const rankedSubs = buildTddFairRank(subs);
       const missingStarterSlots = Math.max(0, TOTAL_STARTER_CAP - selectedStarterPool.length);
       const subsUsedAsStarters = rankedSubs.slice(0, missingStarterSlots);
       selectedStarterPool = [...selectedStarterPool, ...subsUsedAsStarters];
@@ -4773,8 +4823,7 @@ async function balanceTeams(){
     let subPoolA, subPoolB;
     if(useFairRotation){
       // Les dépassements de titulaires sont toujours placés avant les R dans le pool SUB.
-      const orderedSubPool = [...overA, ...overB, ...selectedSubPool];
-      const chosenSubPool = orderedSubPool.slice(0, TOTAL_SUBS * 2);
+      const chosenSubPool = selectedSubPool.slice(0, TOTAL_SUBS * 2);
       [subPoolA, subPoolB] = splitBalanced(chosenSubPool);
       subPoolA = subPoolA.slice(0, TOTAL_SUBS);
       subPoolB = subPoolB.slice(0, TOTAL_SUBS);
@@ -4818,7 +4867,6 @@ async function balanceTeams(){
   }
   if(useFairRotation) renderTddFairResultStats(starters,placedIds);
   if(useFairRotation) await recordTddFairParticipation(placedIds,starterPlacedIds);
-  await recordTddNonRetenus(allTddRegisteredIds,placedIds);
   if(!evAsymMode) toast('⚖️ Équipes sauvegardées !');
   updateEvBanner();renderEventTeams();
 }
@@ -4909,7 +4957,14 @@ function openTddReplaceMenu(event,teamKey,catKey,idx){
     if(!evTeams[tk])return;
     CATEGORIES.forEach(cat=>(evTeams[tk][cat.key]||[]).forEach(p=>placedIds.add(p.id)));
   });
-  const candidates=sortTddPlayers(participants.filter(p=>!placedIds.has(p.id)&&evRoles[p.id]!=='none'));
+  let candidates=participants.filter(p=>!placedIds.has(p.id)&&evRoles[p.id]!=='none');
+  candidates=evFairRotation&&!evAsymMode
+    ? buildTddFairRank(candidates).sort((a,b)=>{
+        const ar=evRoles[a.id]==='starter'?1:0;
+        const br=evRoles[b.id]==='starter'?1:0;
+        return br-ar;
+      })
+    : sortTddPlayers(candidates);
   if(!candidates.length){toast('Aucun joueur non placé disponible');return;}
 
   const menu=document.createElement('div');
@@ -4922,7 +4977,6 @@ function openTddReplaceMenu(event,teamKey,catKey,idx){
 
   candidates.forEach(p=>{
     const role=evRoles[p.id]==='starter'?'T':'R';
-    const count=Number(tddNonRetenus[p.id])||0;
     const btn=document.createElement('button');
     btn.type='button';
     btn.className='tdd-replace-item';
@@ -4936,7 +4990,6 @@ function openTddReplaceMenu(event,teamKey,catKey,idx){
     infoSpan.className='tdd-replace-info';
     const bits=[];
     if(p.power_t1)bits.push(t1FormatPower(p.power_t1));
-    if(count>0)bits.push(`🔄 ×${count}`);
     infoSpan.textContent=bits.join(' · ');
     btn.append(roleSpan,nameSpan,infoSpan);
     btn.addEventListener('click',async e=>{
@@ -4987,21 +5040,8 @@ async function applyTddReplacement(teamKey,catKey,idx,replacementId){
   // exactement le même slot, et le joueur sorti redevient non placé.
   evTeams[teamKey][catKey][idx]=replacement;
 
-  // Le joueur entrant consomme une rotation : x2 -> x1, x1 disparaît.
-  const replacementCount=Number(tddNonRetenus[replacement.id])||0;
-  if(replacementCount>1)tddNonRetenus[replacement.id]=replacementCount-1;
-  else if(replacementCount===1)delete tddNonRetenus[replacement.id];
-
-  // Le joueur sorti devient à nouveau non placé pour cette semaine.
-  // On lui attribue une rotation à rattraper afin qu'il apparaisse dans
-  // la zone « Non placés » dès qu'il quitte l'équipe.
-  const currentCount=Number(tddNonRetenus[current.id])||0;
-  tddNonRetenus[current.id]=currentCount+1;
-
-  await saveTddNonRetenus();
   await saveEvTeamsToDB();
   renderEventTeams();
-  renderTddNonRetenus();
   toast(`${replacement.name} remplace ${current.name} dans ${catKey} — Équipe ${teamKey}`);
 }
 
