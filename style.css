@@ -829,6 +829,7 @@ body.light .poll-page{box-shadow:0 15px 45px rgba(0,0,0,.16)!important}
 #t1PollOverlay{z-index:2000}
 #t1PollOverlay::before{content:"";position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse 85% 55% at 18% 0%,rgba(91,127,255,.15),transparent 65%),radial-gradient(ellipse 65% 55% at 95% 95%,rgba(180,142,255,.1),transparent 65%)}
 #t1PollOverlay .poll-page{animation:fadeUp .4s ease;min-width:0}
+#t1PollOverlay .t1-poll-banner{display:block;width:100%;height:auto;margin:0 auto 16px;border:1px solid var(--border2);border-radius:var(--radius-xl)}
 #t1PollOverlay .poll-guild,#pollOverlay .poll-guild,#canyonPollOverlay .poll-guild{letter-spacing:.16em}
 #t1PollOverlay .t1-field{display:block;box-sizing:border-box;height:46px;padding:0 14px;border:1px solid var(--border2);background:var(--surface3);color:var(--text);border-radius:var(--radius-lg);font-family:inherit;font-size:14px;outline:none;transition:all var(--transition)}
 #t1PollOverlay .t1-power-field{font-weight:700}
@@ -1440,9 +1441,16 @@ body.light .dashboard-subnav-btn:not(.active){background:linear-gradient(180deg,
 .poll-management-staff>strong{font-size:12px}
 .poll-management-staff>p,.poll-management-share>p{margin:7px 0 10px;color:var(--text2);font-size:12px;line-height:1.55}
 .poll-management-table-wrap{max-height:300px;overflow:auto}
+#sectionPowers #t1PowerRoster{max-height:none;overflow-x:auto;overflow-y:visible}
 .poll-management-table-wrap table{width:100%;min-width:300px}
 .t1-power-table{width:100%;min-width:650px;border-collapse:collapse;font-size:12px}
 .t1-power-table td,.t1-power-table th{padding:9px 10px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
+.t1-power-table td.t1-type-cell{text-align:center}
+.t1-type-icon{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;font-size:16px;line-height:1}
+.t1-type-icon.tank{color:var(--green);background:var(--green-l)}
+.t1-type-icon.avion{color:var(--purple);background:var(--purple-l)}
+.t1-type-icon.missile{color:var(--red);background:var(--red-l)}
+.t1-type-icon.hybride{color:var(--cyan);background:var(--cyan-l)}
 .poll-management-share{
   display:grid;
   grid-template-columns:minmax(0,1fr) auto auto;

@@ -5382,6 +5382,24 @@ async function t1Submit(){
 function t1TeamTypeLabel(type){
   return ({tank:'Tank',avion:'Avion',missile:'Missile',hybride:'Hybride',missile_hybride:'Missile hybride'})[type]||'—';
 }
+function t1TeamTypeIcon(type){
+  const icons={
+    tank:{symbol:'🛡️',label:'Tank',className:'tank'},
+    avion:{symbol:'✈️',label:'Avion',className:'avion'},
+    missile:{symbol:'🚀',label:'Missile',className:'missile'},
+    hybride:{symbol:'🔀',label:'Hybride',className:'hybride'},
+    missile_hybride:{symbol:'🔀',label:'Missile hybride',className:'hybride'}
+  };
+  const entry=icons[type];
+  if(!entry)return document.createTextNode('—');
+  const icon=document.createElement('span');
+  icon.className='t1-type-icon '+entry.className;
+  icon.textContent=entry.symbol;
+  icon.title=entry.label;
+  icon.setAttribute('role','img');
+  icon.setAttribute('aria-label',entry.label);
+  return icon;
+}
 async function refreshT1PowerRoster(){
   const roundLabel=document.getElementById('t1PowerRosterRound');
   const roster=document.getElementById('t1PowerRoster');
@@ -5435,8 +5453,12 @@ async function refreshT1PowerRoster(){
         powerCell.appendChild(editButton);
       }
       row.appendChild(powerCell);
-      [t1TeamTypeLabel(submission?.team1_type),submission?.team2_power?t1FormatPower(submission.team2_power):'—',t1TeamTypeLabel(submission?.team2_type)]
-        .forEach(value=>{const cell=document.createElement('td');cell.textContent=value;row.appendChild(cell);});
+      const team1TypeCell=document.createElement('td');team1TypeCell.className='t1-type-cell';
+      team1TypeCell.appendChild(t1TeamTypeIcon(submission?.team1_type));row.appendChild(team1TypeCell);
+      const team2PowerCell=document.createElement('td');team2PowerCell.textContent=submission?.team2_power?t1FormatPower(submission.team2_power):'—';
+      row.appendChild(team2PowerCell);
+      const team2TypeCell=document.createElement('td');team2TypeCell.className='t1-type-cell';
+      team2TypeCell.appendChild(t1TeamTypeIcon(submission?.team2_type));row.appendChild(team2TypeCell);
       body.appendChild(row);
     });
     table.append(head,body);
