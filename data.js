@@ -2,10 +2,12 @@
    DATA.JS — Configuration, constantes métier & traductions
    ========================================================================== */
 
+const SUPABASE_URL="https://yudbfuqudtqkdddjnaad.supabase.co";
+const SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl1ZGJmdXF1ZHRxa2RkZGpuYWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2OTA0MjQsImV4cCI6MjA5NDI2NjQyNH0.G-wFqBVSp05P3HfiDMgaGxufm3n3gWWaKECOVTzPeEA";
 
 const ALLIANCE_NAME_KEY='alliance_display_name';
 
-const CANYON_NON_RETENUS_CONFIG_KEY = 'canyon_non_retenus';
+const TDD_NON_RETENUS_CONFIG_KEY = 'tdd_non_retenus';   // mode asymétrique (grosse équipe A + petite équipe B)
 let _evSaving=false;    // true pendant saveEvTeamsToDB pour ignorer le realtime
 let evAsymSizeA=25;     // nombre de joueurs dans la grosse équipe A
 let evElPriority=true; // les joueurs les plus forts vont en Électrons libres en premier
@@ -27,9 +29,7 @@ const PERM_SECTIONS=[
   {id:'secTirage',      label:'Tirage',        icon:'🚂'},
   {id:'secHist',        label:'Historique',    icon:'📋'},
   {id:'sectionParticipants', label:'Participants', icon:'👥'},
-  {id:'sectionPowers',  label:'Puissances',    icon:'⚡'},
   {id:'sectionStats',   label:'Statistiques',  icon:'📊'},
-  {id:'sectionPolls',   label:'Sondages',      icon:'🗳️'},
   {id:'secEvents',      label:'Événements',    icon:'⚔️'},
   {id:'secCanyon',      label:'Canyon',        icon:'🏜️'},
   {id:'secArchive',     label:'Archives',      icon:'📦'},
@@ -39,8 +39,8 @@ const PERM_SECTIONS=[
 ];
 
 const DEFAULT_PERM={
-  staff: {secTirage:true,secHist:true,sectionParticipants:true,sectionPowers:true,sectionStats:true,secEvents:true,secArchive:true,secCanyon:true},
-  member:{secTirage:true,secHist:true,sectionParticipants:false,sectionPowers:false,sectionStats:false,secEvents:true,secArchive:true,secCanyon:true}
+  staff: {secTirage:true,secHist:true,sectionParticipants:true,sectionStats:true,secEvents:true,secArchive:true,secCanyon:true},
+  member:{secTirage:true,secHist:true,sectionParticipants:false,sectionStats:false,secEvents:true,secArchive:true,secCanyon:true}
 };
 
 const POLL_ROLE_MAP = { present:'starter', remplacant:'sub', absent:'none' };
@@ -80,15 +80,6 @@ const POLL_LABELS = {present:'✅ Présent', remplacant:'🔄 Remplaçant', abse
 const CANYON_STARTERS_PER_TEAM = 20;
 
 const CANYON_SUBS_PER_TEAM = 10;
-
-const CANYON_ZONE_CAPACITY = 5;
-
-const CANYON_ZONES = [
-  {key:'right',label:'Droite'},
-  {key:'left',label:'Gauche'},
-  {key:'center',label:'Centrale'},
-  {key:'free',label:'Électron libre'},
-];
 
 const CATEGORIES=[
   {key:'H1',label:'H1',size:3,color:'#7c9fff',bg:'rgba(124,159,255,0.08)'},

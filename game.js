@@ -7,8 +7,7 @@ function applyAllianceName(name){
   const cleaned=String(name||'').trim().slice(0,60)||'NA1N';
   allianceDisplayName=cleaned;
   document.querySelectorAll('[data-alliance-name]').forEach(el=>{el.textContent=cleaned;});
-  const welcome=(typeof getSiteLanguage==='function'&&getSiteLanguage()==='en')?'Welcome to':'Bienvenue chez';
-  document.title=welcome+' '+cleaned+' 🚂';
+  document.title='Bienvenue chez '+cleaned+' 🚂';
   const input=document.getElementById('allianceNameInput');if(input)input.value=cleaned;
 }
 async function loadAllianceName(){
@@ -52,42 +51,24 @@ let searchFilter='',sortAlpha=false,statSort='name';
 let currentUser=null;
 let evNbTeams=1,evRoles={},evTeams=null,evDragSrc=null,evTeamsLoaded=false;
 // V18.6 — disponibilités par session et créneaux de chaque équipe.
-let tddSlotVotes={},tddSlotOriginal={},tddSlotSessionId=null,tddTeamSlots={A:'midi',B:'soir'};
-let tddRoleOverrides={},tddRoleOverrideSessionId=null,tddRoleOverridesReady=false;
+let tddSlotVotes={},tddSlotOriginal={},tddTeamSlots={A:'midi',B:'soir'};
 function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function tddSlotLabel(slot){return slot==='midi'?'☀️ Midi':slot==='soir'?'🌙 Soir':slot==='both'?'🔄 Les deux':'⚪ Non renseigné';}
 function tddSlotCompatible(id,teamKey){const slot=tddSlotVotes[id];return !slot||slot==='both'||slot===tddTeamSlots[teamKey];}
-function tddPlayersForTeam(players,teamKey){return players.filter(p=>tddSlotCompatible(p.id,teamKey));}
 async function loadTddSlotVotes(){
- if(!sb)return false;
- let sessionId=availabilityState.tdd?.id||null;
- if(!sessionId){
-  const {data,error}=await sb.from('availability_sessions').select('id').eq('kind','tdd').order('opened_at',{ascending:false}).limit(1);
-  if(error){console.warn('Session des créneaux TDD :',error.message);return false;}
-  sessionId=data?.[0]?.id||null;
- }
- if(!sessionId){
-  tddSlotSessionId=null;tddSlotVotes={};tddSlotOriginal={};
-  renderEventPlayers();renderTddSlotStaff();
-  return true;
- }
- const {data,error}=await sb.from('tdd_slot_preferences').select('participant_id,slot,original_slot').eq('session_id',sessionId);
- if(error){console.warn('Créneaux TDD : exécuter SQL V18.6',error.message);return false;}
- tddSlotSessionId=sessionId;
+ if(!sb||!availabilityState.tdd?.id)return;
+ const {data,error}=await sb.from('tdd_slot_preferences').select('participant_id,slot,original_slot').eq('session_id',availabilityState.tdd.id);
+ if(error){console.warn('Créneaux TDD : exécuter SQL V18.6',error.message);return;}
  tddSlotVotes=Object.fromEntries((data||[]).map(r=>[r.participant_id,r.slot]));
  tddSlotOriginal=Object.fromEntries((data||[]).filter(r=>r.original_slot).map(r=>[r.participant_id,r.original_slot]));
  renderEventPlayers();
  renderTddSlotStaff();
- return true;
 }
 async function loadTddTeamSlots(){
- if(!sb)return false;
+ if(!sb)return;
  const {data,error}=await sb.from('tdd_team_slots').select('team_key,slot');
- if(error){console.warn('Créneaux des équipes TDD :',error.message);return false;}
- tddTeamSlots={A:'midi',B:'soir'};
- (data||[]).forEach(r=>{if(r.team_key==='A'||r.team_key==='B')tddTeamSlots[r.team_key]=r.slot;});
+ if(!error)(data||[]).forEach(r=>{if(r.team_key==='A'||r.team_key==='B')tddTeamSlots[r.team_key]=r.slot;});
  renderTddSlotStaff();
- return true;
 }
 async function setTddTeamSlot(team,slot){
  if(!isAdminOrStaff()||!['A','B'].includes(team)||!['midi','soir'].includes(slot))return;
@@ -98,28 +79,11 @@ async function setTddTeamSlot(team,slot){
  tddTeamSlots[team]=slot;renderTddSlotStaff();renderEventTeams();
 }
 async function setTddPlayerSlot(id,slot){
- if(!isAdminOrStaff()||!['midi','soir','both'].includes(slot))return;
- if((availabilityState.tdd?.id&&availabilityState.tdd.id!==tddSlotSessionId)||!tddSlotSessionId){
-  if(!await loadTddSlotVotes()){alert('Impossible de charger les créneaux de la session TDD.');return;}
- }
- const sessionId=availabilityState.tdd?.id||tddSlotSessionId;
- if(!sessionId){alert('Aucune session TDD à corriger.');return;}
- try{
-  const hash=await getStaffActionHash();if(!hash)return;
-  const {error}=await sb.rpc('tdd_staff_update_slot_v1',{
-   p_username:currentUser.username,
-   p_account_hash:hash,
-   p_session_id:sessionId,
-   p_participant_id:id,
-   p_slot:slot
-  });
-  if(error)throw error;
-  tddSlotSessionId=sessionId;
-  tddSlotVotes[id]=slot;renderTddSlotStaff();renderEventPlayers();renderEventTeams();
- }catch(error){
-  alert('Modification impossible : '+(error.message||String(error)));
-  await loadTddSlotVotes();
- }
+ if(!isAdminOrStaff()||!['midi','soir','both'].includes(slot)||!availabilityState.tdd?.id)return;
+ const old=tddSlotVotes[id];
+ const {error}=await sb.from('tdd_slot_preferences').upsert({session_id:availabilityState.tdd.id,participant_id:id,slot});
+ if(error){alert('Modification impossible : '+error.message);renderTddSlotStaff();return;}
+ tddSlotVotes[id]=slot;renderTddSlotStaff();renderEventPlayers();renderEventTeams();
 }
 function tddPlayerOriginalBadge(p){
  const original=tddSlotOriginal[p.id];
@@ -140,20 +104,8 @@ function renderTddSlotStaff(){
 
 function tddBalancedSlots(){
  const capTit=CATEGORIES.filter(c=>c.key!=='SUB').reduce((n,c)=>n+c.size,0);
- let starters=participants.filter(p=>evRoles[p.id]==='starter');
- let subs=participants.filter(p=>evRoles[p.id]==='sub');
- let overflow=[];
- if(evFairRotation){
-   starters=buildTddFairRank(starters);
-   subs=buildTddFairRank(subs);
-   overflow=starters.slice(capTit);
-   starters=starters.slice(0,capTit);
- }else{
-   starters=sortTddPlayers(starters);
-   subs=sortTddPlayers(subs);
-   overflow=starters.slice(capTit);
-   starters=starters.slice(0,capTit);
- }
+ const starters=sortTddPlayers(participants.filter(p=>evRoles[p.id]==='starter'));
+ const subs=sortTddPlayers(participants.filter(p=>evRoles[p.id]==='sub'));
  const teams={A:{starters:[],subs:[]},B:{starters:[],subs:[]}};
  const placed=new Set();
  const assign=(pool,kind,cap)=>{
@@ -166,44 +118,18 @@ function tddBalancedSlots(){
      teams[options[0]][kind].push(p);placed.add(p.id);
    }
  };
- const teamPower=t=>[...t.starters,...t.subs].reduce((n,p)=>n+getEffectivePower(p),0);
- assign(starters,'starters',capTit);
- rebalanceTypeQuotas(teams.A.starters,teams.B.starters,(playerA,playerB)=>
-   tddSlotCompatible(playerA.id,'B')&&tddSlotCompatible(playerB.id,'A'));
- // Les titulaires excédentaires sont toujours placés comme remplaçants
- // avant les joueurs déclarés remplaçants.
- assign([...overflow,...subs],'subs',TOTAL_SUBS);
- rebalanceTypeQuotas(teams.A.subs,teams.B.subs,(playerA,playerB)=>
-   tddSlotCompatible(playerA.id,'B')&&tddSlotCompatible(playerB.id,'A'));
+ const teamPower=t=>[...t.starters,...t.subs].reduce((n,p)=>n+(p.power_t1||0),0);
+ assign(starters,'starters',capTit);assign(subs,'subs',TOTAL_SUBS);
+ // Titulaires excédentaires : places de remplaçants, sans dépasser les 10 par équipe.
+ assign(starters.filter(p=>!placed.has(p.id)),'subs',TOTAL_SUBS);
  return {A:buildOneTeam(teams.A.starters,teams.A.subs,true),B:buildOneTeam(teams.B.starters,teams.B.subs,true)};
 }
 
-function tddAsymmetricSlotTeams(players){
- const starterCap=CATEGORIES.filter(c=>c.key!=='SUB').reduce((n,c)=>n+c.size,0);
- const teamCap=starterCap+TOTAL_SUBS;
- const nA=Math.min(Math.max(1,evAsymSizeA),players.length-1);
- const candidates=[
-  ...players.slice(0,nA).slice(0,teamCap).map((player,index)=>({player,preferred:'A',rank:index})),
-  ...players.slice(nA).slice(0,teamCap).map((player,index)=>({player,preferred:'B',rank:nA+index}))
- ];
- const teams={A:[],B:[]};
- const isStrict=player=>['midi','soir'].includes(tddSlotVotes[player.id]);
- candidates.sort((a,b)=>Number(isStrict(b.player))-Number(isStrict(a.player))||a.rank-b.rank);
- candidates.forEach(candidate=>{
-  const options=['A','B'].filter(key=>tddSlotCompatible(candidate.player.id,key)&&teams[key].length<teamCap);
-  if(!options.length)return;
-  const team=options.includes(candidate.preferred)?candidate.preferred:options[0];
-  teams[team].push(candidate);
- });
- const buildTeam=key=>{
-  const selected=teams[key].sort((a,b)=>a.rank-b.rank).map(entry=>entry.player);
-  return buildOneTeam(selected.slice(0,starterCap),selected.slice(starterCap,teamCap),true);
- };
- return {A:buildTeam('A'),B:buildTeam('B')};
-}
-
 let evAsymMode=false;
-let tddFairStats={counts:{},starters:{},history:{},week:''};
+// Rotation équitable des joueurs non retenus, conservée d'une semaine à l'autre.
+let tddNonRetenus = {};
+let tddNonRetenusWeek = '';
+let tddFairStats={counts:{},starters:{},week:''};
 let weeklyDrawsData=[];
 let drawBuffer=null; // Mémoire tampon 48h post-archivage (coffres_snapshot de la semaine passée)
 
@@ -212,115 +138,15 @@ let drawBuffer=null; // Mémoire tampon 48h post-archivage (coffres_snapshot de 
 
 let permConfig=JSON.parse(JSON.stringify(DEFAULT_PERM));
 let permTableExists=true;
-const DASHBOARD_PAGES=[
-  {id:'home',sections:['secTirage']},
-  {id:'players',sections:['sectionParticipants','sectionPowers','sectionStats']},
-  {id:'activities',sections:['secEvents','secCanyon']},
-  {id:'polls',sections:['sectionPolls']},
-  {id:'history',sections:['secHist','secArchive']},
-  {id:'tools',sections:['secMovements','secRewards']},
-  {id:'about',sections:['aboutSection']}
-];
-const DASHBOARD_TABS={
-  home:[
-    {section:'secTirage',label:'Planning de la semaine'}
-  ],
-  players:[
-    {section:'sectionParticipants',label:'Participants'},
-    {section:'sectionPowers',label:'Puissances'},
-    {section:'sectionStats',label:'Statistiques'}
-  ],
-  activities:[
-    {section:'secCanyon',label:'Canyon'},
-    {section:'secEvents',label:'Tempête du désert'}
-  ],
-  history:[
-    {section:'secHist',label:'Tirages'},
-    {section:'secArchive',label:'Semaines archivées'}
-  ],
-  polls:[
-    {section:'sectionPolls',label:'Sondages'}
-  ],
-  tools:[
-    {section:'secMovements',label:'Recrutements & Départs'},
-    {section:'secRewards',label:'Récompenses'}
-  ],
-  about:[
-    {section:'aboutSection',label:'À propos'}
-  ],
-  pollTypes:[
-    {section:'tddPollPanel',label:'Tempête du désert'},
-    {section:'canyonPollPanel',label:'Canyon'},
-    {section:'t1PollPanel',label:'Puissances'},
-    {section:'publicPollsPanel',label:'Centre de sondage'}
-  ]
-};
-const activeDashboardTabs={
-  home:'secTirage',
-  players:'sectionParticipants',
-  activities:'secCanyon',
-  history:'secHist',
-  polls:'sectionPolls',
-  tools:'secMovements',
-  about:'aboutSection',
-  pollTypes:'tddPollPanel'
-};
-let activeDashboardPage='home';
 
 function canSeeSection(secId){
   if(!currentUser)return false;
   const role=currentUser.role;
-  if(secId==='tddPollPanel'||secId==='canyonPollPanel'||secId==='t1PollPanel'||secId==='publicPollsPanel')return canSeeSection('sectionPolls');
   if(secId==='secRewards'||secId==='secMovements')return role==='admin'||role==='staff';
   if(secId==='aboutSection') return role==='admin';
-  if(secId==='sectionPolls')return role==='admin'||role==='staff';
   if(role==='admin')return true;
   const p=role==='staff'?permConfig.staff:permConfig.member;
   return p[secId]!==false;
-}
-
-function updateDashboardNavLayout(){
-  const nav=document.getElementById('dashboardNav');
-  if(!nav)return;
-  const visibleCount=Array.from(nav.querySelectorAll('.dashboard-nav-btn'))
-    .filter(button=>getComputedStyle(button).display!=='none').length;
-  nav.style.setProperty('--dashboard-nav-items',String(Math.max(visibleCount,1)));
-}
-
-function setDashboardTab(pageId,sectionId){
-  const tabs=DASHBOARD_TABS[pageId];
-  if(!tabs)return;
-  const activeSection=tabs.some(tab=>tab.section===sectionId&&canSeeSection(tab.section))
-    ?sectionId
-    :tabs.find(tab=>canSeeSection(tab.section))?.section;
-  if(!activeSection)return;
-  activeDashboardTabs[pageId]=activeSection;
-
-  const tabNav=document.querySelector(`[data-dashboard-tabs="${pageId}"]`);
-  if(tabNav){
-    tabNav.querySelectorAll('[role="tab"]').forEach(button=>{
-      const selected=button.dataset.dashboardTab===activeSection;
-      button.hidden=!canSeeSection(button.dataset.dashboardTab);
-      button.setAttribute('aria-selected',String(selected));
-      button.tabIndex=selected?0:-1;
-      button.classList.toggle('active',selected);
-    });
-  }
-  tabs.forEach(tab=>{
-    const section=document.getElementById(tab.section);
-    if(section)section.style.display=canSeeSection(tab.section)&&tab.section===activeSection?'':'none';
-  });
-  if(pageId==='tools'){
-    if(activeSection==='secRewards'&&rwAllowed())rwFetch(true);
-    if(activeSection==='secMovements'&&mvAllowed())mvRefresh(true);
-  }
-  if(pageId==='players'&&activeSection==='sectionPowers')refreshT1PowerRoster();
-  if(pageId==='pollTypes')refreshPollManagementPanel(activeSection);
-}
-
-function isDashboardSectionActive(sectionId){
-  const section=document.getElementById(sectionId);
-  return document.visibilityState!=='hidden'&&!!section&&section.style.display!=='none';
 }
 
 function applyPermissions(){
@@ -329,57 +155,14 @@ function applyPermissions(){
     const visible=canSeeSection(id);
     const sec=document.getElementById(id);
     if(sec)sec.style.display=visible?'':'none';
+    const btn=document.querySelector(`.mob-nav-btn[data-tab="${id}"]`);
+    if(btn)btn.style.display=visible?'':'none';
   });
-  DASHBOARD_PAGES.forEach(page=>{
-    const btn=document.querySelector(`.dashboard-nav-btn[data-page="${page.id}"]`);
-    if(btn)btn.style.display=page.sections.some(canSeeSection)?'':'none';
-  });
-  updateDashboardNavLayout();
-  const activePage=DASHBOARD_PAGES.find(page=>page.id===activeDashboardPage&&page.sections.some(canSeeSection))
-    ||DASHBOARD_PAGES.find(page=>page.sections.some(canSeeSection));
-  if(activePage)setDashboardPage(activePage.id);
   // Stats: render si maintenant visible et pas encore rendu
   if(canSeeSection('sectionStats')){
     const g=document.getElementById('statsGrid');
     if(g&&!g.innerHTML)renderStats();
     else if(!g)renderStats();
-  }
-}
-
-function setDashboardPage(pageId){
-  const page=DASHBOARD_PAGES.find(item=>item.id===pageId);
-  if(!page)return;
-  const visibleSections=page.sections.filter(canSeeSection);
-  if(!visibleSections.length)return;
-
-  const pageChanged=activeDashboardPage!==pageId;
-  activeDashboardPage=pageId;
-  PERM_SECTIONS.forEach(({id})=>{
-    const section=document.getElementById(id);
-    if(section)section.style.display=visibleSections.includes(id)?'':'none';
-  });
-  DASHBOARD_PAGES.forEach(item=>{
-    const button=document.querySelector(`.dashboard-nav-btn[data-page="${item.id}"]`);
-    if(button)button.style.display=item.sections.some(canSeeSection)?'':'none';
-  });
-  updateDashboardNavLayout();
-  document.querySelectorAll('.dashboard-nav-btn').forEach(button=>{
-    const active=button.dataset.page===pageId;
-    button.classList.toggle('active',active);
-    if(active)button.setAttribute('aria-current','page');
-    else button.removeAttribute('aria-current');
-  });
-  document.querySelectorAll('[data-dashboard-tabs]').forEach(tabNav=>{
-    tabNav.hidden=tabNav.dataset.dashboardTabs!==pageId
-      &&!(pageId==='polls'&&tabNav.dataset.dashboardTabs==='pollTypes');
-  });
-  if(DASHBOARD_TABS[pageId])setDashboardTab(pageId,activeDashboardTabs[pageId]);
-  if(pageId==='polls')setDashboardTab('pollTypes',activeDashboardTabs.pollTypes);
-  if(pageChanged){
-    document.getElementById('dashboardContent')?.scrollIntoView({
-      behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',
-      block:'start'
-    });
   }
 }
 
@@ -601,9 +384,6 @@ let pollParticipants = [];
 let pollResults = {};
 let pollSelectedId = null;
 let pollSelectedName = null;
-let tddPollSessionChannel = null;
-let tddPollVotesChannel = null;
-let pollPageRefreshTimer = null;
 
 function checkPollMode(){
   const params = new URLSearchParams(window.location.search);
@@ -622,61 +402,9 @@ function checkPollMode(){
 
 async function initPollPage(){
   if(!sb){ setTimeout(initPollPage, 200); return; }
-  if(!tddPollSessionChannel){
-    tddPollSessionChannel=sb.channel('tdd_sessions_public')
-      .on('postgres_changes',{
-        event:'*',
-        schema:'public',
-        table:'availability_sessions',
-        filter:'kind=eq.tdd'
-      },()=>{
-        window.clearTimeout(pollPageRefreshTimer);
-        pollPageRefreshTimer=window.setTimeout(()=>{
-          pollPageRefreshTimer=null;
-          initPollPage();
-        },150);
-      })
-      .subscribe(status=>{
-        if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){
-          console.error('Mise à jour des sessions TDD indisponible :',status);
-        }
-      });
-  }
-  if(!tddPollVotesChannel){
-    tddPollVotesChannel=sb.channel('tdd_poll_rt')
-      .on('postgres_changes',
-        {event:'*',schema:'public',table:'tdd_poll'},
-        payload=>{
-          const r=payload.new||payload.old;
-          if(r?.session_id&&availabilityState.tdd?.id&&r.session_id!==availabilityState.tdd.id)return;
-          if(payload.eventType==='DELETE'){
-            if(r)delete pollResults[r.participant_id];
-          }else if(r){
-            pollResults[r.participant_id]=r.response;
-          }
-          refreshPollNameBadges();
-          updatePollEvBanner();
-        }
-      )
-      .subscribe(status=>{
-        if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){
-          console.error('Mise à jour des votes TDD indisponible :',status);
-        }
-      });
-  }
-  try{
-    await fetchAvailabilitySession('tdd');
-  }catch(error){
-    console.error('Session du sondage TDD indisponible :',error);
-    const title=document.getElementById('pollSessionLabel');
-    if(title)title.textContent='Impossible de charger la session du sondage.';
-    return;
-  }
-  pollResults={};
-  if(!availabilityPublicStatus('tdd')){
-    renderPollNames('');
-    return;
-  }
+  await fetchAvailabilitySession('tdd');
+  if(!availabilityPublicStatus('tdd'))return;
+  sb.channel('tdd_sessions_public').on('postgres_changes',{event:'*',schema:'public',table:'availability_sessions'},()=>initPollPage()).subscribe();
   // Charger les participants (critique — erreur bloquante)
   try{
     const pRes = await sb.from('participants').select('id,name').order('name');
@@ -690,17 +418,28 @@ async function initPollPage(){
     return;
   }
   // Charger les votes existants (non critique)
-  let pollQuery=sb.from('tdd_poll').select('participant_id,response');
-  if(availabilityState.tdd?.id)pollQuery=pollQuery.eq('session_id',availabilityState.tdd.id);
-  const pollRes=await pollQuery;
-  if(pollRes.error){
-    console.warn('Poll: erreur chargement votes (non bloquant):',pollRes.error);
-  }else{
-    (pollRes.data||[]).forEach(r=>{ pollResults[r.participant_id] = r.response; });
+  try{
+    const pollRes = await sb.from('tdd_poll').select('participant_id,response');
+    if(!pollRes.error)(pollRes.data||[]).forEach(r=>{ pollResults[r.participant_id] = r.response; });
+  }catch(e){
+    console.warn('Poll: erreur chargement votes (non bloquant):', e);
   }
   await loadTddSlotVotes();
   // Les pseudos ayant voté ne sont plus proposés, quel que soit l'appareil.
   renderPollNames('');
+  // Temps réel
+  try{
+    sb.channel('tdd_poll_rt').on('postgres_changes',
+      {event:'*', schema:'public', table:'tdd_poll'},
+      (payload)=>{
+        const r = payload.new || payload.old;
+        if(payload.eventType === 'DELETE') { if(r) delete pollResults[r.participant_id]; }
+        else if(r) pollResults[r.participant_id] = r.response;
+        refreshPollNameBadges();
+        updatePollEvBanner();
+      }
+    ).subscribe();
+  }catch(e){}
 }
 
 function filterPollNames(){
@@ -747,12 +486,8 @@ async function submitPollVote(response){
   pollVotePending=true;
   document.querySelectorAll('.poll-choice').forEach(b=>b.disabled=true);
   try{
-    const {error}=await sb.rpc('tdd_availability_submit_v1',{
-      p_session_id:availabilityState.tdd.id,
-      p_participant_id:pollSelectedId,
-      p_response:response,
-      p_slot:slot
-    });
+    // INSERT uniquement : la clé primaire et la politique SQL bloquent le second vote.
+    const {error}=await sb.rpc('tdd_submit_with_slot',{p_session_id:availabilityState.tdd.id,p_participant_id:pollSelectedId,p_response:response,p_slot:response==='absent'?null:slot});
     if(error){
       if(error.code==='23505'){
         await loadPollResults();
@@ -765,18 +500,9 @@ async function submitPollVote(response){
     pollResults[pollSelectedId]=response;
     try{localStorage.setItem(participationKey('tdd',availabilityState.tdd.id),String(pollSelectedId));}
     catch(storageError){console.warn('Mémorisation locale TDD impossible :',storageError);}
-    if(response!=='absent'){
-      tddSlotVotes[pollSelectedId]=slot;
-      tddSlotOriginal[pollSelectedId]=slot;
-    }
     // V18.5 : comme pour T1, fermer le formulaire dès que le vote est confirmé.
     const tddGate=document.getElementById('pollGate');
-    if(tddGate){
-      tddGate.style.display='block';
-      tddGate.textContent=response==='absent'
-        ?pollSelectedName+', ton vote est enregistré. Tu as déjà participé à cette session. Reviens à la prochaine ouverture.'
-        :pollSelectedName+', ton vote et ton horaire ('+(slot==='both'?'midi et soir':slot)+') sont enregistrés. Tu as déjà participé à cette session. Reviens à la prochaine ouverture.';
-    }
+    if(tddGate){tddGate.style.display='block';tddGate.textContent=pollSelectedName+', ton vote est enregistré. Tu as déjà participé à cette session. Reviens à la prochaine ouverture.';}
     ['pollStep1','pollStep2','pollStep2b','pollStep3'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
   }catch(e){
     console.error('Vote TDD:',e);
@@ -785,6 +511,30 @@ async function submitPollVote(response){
     pollVotePending=false;
     document.querySelectorAll('.poll-choice').forEach(b=>b.disabled=false);
   }
+}
+
+function showPollConfirm(response, isNew){
+  const counts = getPollCounts();
+  document.getElementById('pollConfirmIcon').textContent = POLL_ICONS[response];
+  document.getElementById('pollConfirmMsg').textContent = isNew
+    ? (pollSelectedName + ', ta réponse a été enregistrée !')
+    : (pollSelectedName + ', tu as déjà répondu.');
+  document.getElementById('pollConfirmSub').textContent =
+    response === 'present' ? 'Tu es inscrit comme titulaire.' :
+    response === 'remplacant' ? 'Tu es inscrit comme remplaçant.' :
+    'Tu es inscrit comme absent.';
+  document.getElementById('pollConfirmSummary').innerHTML =
+    '<span class="poll-summary-pill present">✅ ' + counts.present + ' présent' + (counts.present>1?'s':'') + '</span>'
+    + '<span class="poll-summary-pill remplacant">🔄 ' + counts.remplacant + ' remplaçant' + (counts.remplacant>1?'s':'') + '</span>'
+    + '<span class="poll-summary-pill absent">❌ ' + counts.absent + ' absent' + (counts.absent>1?'s':'') + '</span>';
+  pollStep(3);
+  // Confirmation visible, puis formulaire bloqué au prochain chargement.
+}
+
+function getPollCounts(){
+  const c = {present:0, remplacant:0, absent:0};
+  Object.values(pollResults).forEach(function(r){ if(c[r] !== undefined) c[r]++; });
+  return c;
 }
 
 function pollStep(n){
@@ -802,55 +552,11 @@ function pollStep(n){
   if(n === '2b') setTimeout(function(){ const inp = document.getElementById('pollPinInp'); if(inp) inp.focus(); }, 100);
 }
 
-async function loadTddRoleOverrides(){
-  const sessionId=availabilityState.tdd?.id;
-  if(!sb||!sessionId){
-    tddRoleOverrides={};tddRoleOverrideSessionId=null;tddRoleOverridesReady=false;
-    return true;
-  }
-  const {data,error}=await sb.from('tdd_role_overrides').select('participant_id,role').eq('session_id',sessionId);
-  if(error){
-    tddRoleOverridesReady=false;
-    console.error('Surcharges de rôles TDD : exécuter tdd-polls-migration.sql',error.message);
-    return false;
-  }
-  tddRoleOverrides=Object.fromEntries((data||[]).map(row=>[row.participant_id,row.role]));
-  tddRoleOverrideSessionId=sessionId;
-  tddRoleOverridesReady=true;
-  return true;
-}
-
-async function saveTddRoleOverrides(entries){
-  const sessionId=availabilityState.tdd?.id;
-  if(!sessionId)return;
-  if(!entries.length)return;
-  const hash=await getStaffActionHash();
-  if(!hash)throw new Error('Reconnecte-toi avec ton compte staff.');
-  const rows=entries.map(({id,role})=>({participant_id:id,role}));
-  const {error}=await sb.rpc('tdd_staff_update_roles_v1',{
-    p_username:currentUser.username,
-    p_account_hash:hash,
-    p_session_id:sessionId,
-    p_entries:rows
-  });
-  if(error)throw error;
-  if(tddRoleOverrideSessionId!==sessionId)tddRoleOverrides={};
-  rows.forEach(row=>{tddRoleOverrides[row.participant_id]=row.role;});
-  tddRoleOverrideSessionId=sessionId;
-  tddRoleOverridesReady=true;
-}
-
 function applyTddPollRolesToEvent(){
   if(!availabilityState.tdd || !currentUser || !participants.length)return;
-  if(!tddRoleOverridesReady||tddRoleOverrideSessionId!==availabilityState.tdd.id)return;
   // La réponse au sondage alimente la présélection TDD : présent = titulaire,
-  // remplaçant = remplaçant, absent/non-répondant = aucun rôle. Une correction staff
-  // enregistrée pour cette session prévaut sur la réponse du joueur.
-  participants.forEach(p=>{
-    evRoles[p.id]=Object.prototype.hasOwnProperty.call(tddRoleOverrides,p.id)
-      ?tddRoleOverrides[p.id]
-      :POLL_ROLE_MAP[pollResults[p.id]]||'none';
-  });
+  // remplaçant = remplaçant, absent/non-répondant = aucun rôle.
+  participants.forEach(p=>{evRoles[p.id]=POLL_ROLE_MAP[pollResults[p.id]]||'none';});
   updateEvBanner();
   renderEventPlayers();
 }
@@ -858,9 +564,7 @@ function applyTddPollRolesToEvent(){
 async function loadPollResults(){
   if(!sb) return;
   try{
-    let query=sb.from('tdd_poll').select('participant_id,response');
-    if(availabilityState.tdd?.id)query=query.eq('session_id',availabilityState.tdd.id);
-    const {data,error}=await query;
+    const {data,error} = await sb.from('tdd_poll').select('participant_id,response');
     if(error)throw error;
     pollResults = {};
     (data||[]).forEach(function(r){ pollResults[r.participant_id] = r.response; });
@@ -868,7 +572,7 @@ async function loadPollResults(){
     renderPollStaffTable();
     if(availabilityState.tdd && currentUser){
       await loadTddSlotVotes();
-      if(await loadTddRoleOverrides())applyTddPollRolesToEvent();
+      applyTddPollRolesToEvent();
     }
     renderEventPlayers();
   }catch(e){console.warn('Chargement des réponses TDD :',e);}
@@ -886,47 +590,29 @@ function updatePollEvBanner(){
   el.textContent=isOpen?`${count} votant${count>1?'s':''}`:'';
 }
 
-// ══ GESTION DU SONDAGE TDD ══════════════════════════════════════════════════
+// ══ MODAL SONDAGE (bouton "Lancer le sondage" dans le hall) ═════════════════
 
-function refreshPollManagementPanel(panelId){
-  if(panelId==='tddPollPanel')refreshTddPollPanel();
-  else if(panelId==='canyonPollPanel')refreshCanyonPollPanel();
-  else if(panelId==='t1PollPanel')refreshT1PollPanel();
-  else if(panelId==='publicPollsPanel')refreshPublicPollsPanel();
-}
-
-function publicPollsUrl(){
-  return new URL('polls/index.html',window.location.href).href;
-}
-
-function refreshPublicPollsPanel(){
-  const url=publicPollsUrl();
-  const input=document.getElementById('publicPollsLink');
-  if(input)input.value=url;
-  const link=document.getElementById('openPublicPollsLink');
-  if(link)link.href=url;
-}
-
-function copyPublicPollsLink(){
-  const url=publicPollsUrl();
-  if(!navigator.clipboard?.writeText){prompt('Copie le lien :',url);return;}
-  navigator.clipboard.writeText(url)
-    .then(()=>toast('Lien Polls copié !'))
-    .catch(()=>prompt('Copie le lien :',url));
-}
-
-function refreshTddPollPanel(){
-  const inp=document.getElementById('pollLinkInput');
-  if(inp)inp.value=window.location.href.split('?')[0]+'?poll=tdd';
+function openPollModal(){
+  const modal = document.getElementById('pollModal');
+  if(!modal) return;
+  // Remplir le champ lien
+  const url = window.location.href.split('?')[0] + '?poll=tdd';
+  const inp = document.getElementById('pollLinkInput');
+  if(inp) inp.value = url;
+  // Tableau de correction réservé aux membres du staff et administrateurs.
   const staffPanel=document.getElementById('pollStaffPanel');
-  if(staffPanel)staffPanel.style.display=isAdminOrStaff()?'':'none';
-  if(!sb)return;
+  if(staffPanel) staffPanel.style.display=isAdminOrStaff()?'':'none';
   renderPollStaffTable();
   loadAvailabilityStaff('tdd');
-  loadPollResults();
+  modal.style.display = 'flex';
 }
 
-function copyTddPollLink(){
+function closePollModal(){
+  const modal = document.getElementById('pollModal');
+  if(modal) modal.style.display = 'none';
+}
+
+function copyPollLinkModal(){
   const inp = document.getElementById('pollLinkInput');
   if(!inp) return;
   navigator.clipboard.writeText(inp.value).then(function(){ toast('Lien sondage copié !'); });
@@ -961,10 +647,10 @@ async function staffCorrectPoll(id,name,select){
   if(!hash){select.value=old;return;}
   select.disabled=true;
   try{
-    if(!availabilityState.tdd?.id)throw new Error('Aucune session TDD active.');
-    const {error}=await sb.rpc('tdd_staff_update_response_v1',{
+    
+    const {error}=await sb.rpc('availability_correct_v3',{
       p_username:currentUser.username,p_account_hash:hash,
-      p_session_id:availabilityState.tdd.id,p_participant_id:id,p_response:next||null
+      p_kind:'tdd',p_participant_id:id,p_response:next||null
     });
     if(error) throw error;
     if(next)pollResults[id]=next;else delete pollResults[id];
@@ -982,10 +668,10 @@ function copyPollLink(){
 // ══ SONDAGE BATAILLE DU CANYON (indépendant de la TDD) ══
 let canyonPollParticipants=[],canyonPollResults={},canyonPollSelected=null,canyonPollPending=false;
 function canyonPollUrl(){return window.location.href.split('?')[0]+'?poll=canyon';}
-function refreshCanyonPollPanel(){
+function openCanyonPollModal(){
   const url=canyonPollUrl();
   const input=document.getElementById('canyonPollLink');if(input)input.value=url;
-  if(!sb)return;
+  const modal=document.getElementById('canyonPollModal');if(modal)modal.style.display='flex';
   renderCanyonPollStaff();
   loadCanyonPollResults();
   loadAvailabilityStaff('canyon');
@@ -1196,6 +882,13 @@ function closeAbsentMenuOnOutsideClick(event){
 
 document.addEventListener('keydown', event=>{if(event.key==='Escape')closeAbsentModal();});
 
+function showAbsentStep(n){ /* étape unique — remplaçant direct */ }
+function absentPrevStep(){ closeAbsentModal(); }
+
+
+
+
+
 function renderReplaceList(list=document.getElementById('replaceList')){
   if(!list) return;
   const current = weeklyDrawsData.find(d=>d.id===sanctionDrawId);
@@ -1361,10 +1054,11 @@ function showApp(){
   const rb=document.getElementById('userRoleDisplay');
   rb.textContent=roleLabel(currentUser.role);
   rb.className='user-role-badge '+roleBadgeClass(currentUser.role);
+  const saved=localStorage.getItem(SESSION_KEY);
+  if(saved){try{const s=JSON.parse(saved);if(s.expires){const days=Math.ceil((s.expires-Date.now())/(24*60*60*1000));document.getElementById('sessionInfo').textContent=`· Session : ${days}j`;}}catch{}}
+  else document.getElementById('sessionInfo').textContent='· Session temporaire';
   document.getElementById('sectionParticipants').style.display=isAdminOrStaff()?'':'none';
-  document.getElementById('sectionPowers').style.display=isAdminOrStaff()?'':'none';
   document.getElementById('sectionStats').style.display=isAdminOrStaff()?'':'none';
-  setDashboardPage('home');
   // aboutSection géré via canSeeSection dans PERM_SECTIONS
   rwInit();
   mvInit();
@@ -1451,73 +1145,34 @@ function getTddWeekKey(date=new Date()){
   const week=1+Math.round(((d-first)/86400000-3+(first.getDay()+6)%7)/7);
   return d.getFullYear()+'-W'+String(week).padStart(2,'0');
 }
+async function loadTddNonRetenus(){
+  if(!sb)return;
+  try{const{data}=await sb.from('app_config').select('value').eq('key',TDD_NON_RETENUS_CONFIG_KEY).maybeSingle();if(data&&data.value){tddNonRetenus=data.value.counts||{};tddNonRetenusWeek=data.value.week||'';}}catch(e){}
+  renderTddNonRetenus();
+}
+async function saveTddNonRetenus(){
+  if(!sb)return;
+  await sb.from('app_config').upsert({key:TDD_NON_RETENUS_CONFIG_KEY,value:{counts:tddNonRetenus,week:tddNonRetenusWeek},updated_at:new Date().toISOString()});
+}
+function renderTddNonRetenus(){
+  const summary=document.getElementById('evFairnessSummary'),list=document.getElementById('evFairnessList');
+  const entries=Object.entries(tddNonRetenus).map(([id,count])=>({p:participants.find(x=>String(x.id)===String(id)),count:Number(count)||0})).filter(x=>x.p&&x.count>0).sort((a,b)=>b.count-a.count||a.p.name.localeCompare(b.p.name));
+  if(summary)summary.textContent=entries.length?`🔄 Rotation : ${entries.length} joueur${entries.length>1?'s':''} à rattraper`:'🔄 Rotation : aucun joueur en attente';
+  if(list)list.innerHTML=entries.length?'<div style="padding:8px 12px;border:1px solid rgba(255,184,77,0.2);background:rgba(255,184,77,0.05);border-radius:var(--radius-lg);font-size:11px;color:var(--text3)"><strong style="color:var(--amber)">🔄 Rotation des non-retenus</strong> — les joueurs non pris sont automatiquement enregistrés et prioritaires la semaine suivante.<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'+entries.map(x=>`<span style="padding:3px 7px;border:1px solid var(--border2);border-radius:99px;color:var(--text)">${x.p.name} <b style="color:var(--amber)">×${x.count}</b></span>`).join('')+'</div></div>':'';
+}
+async function recordTddNonRetenus(registeredIds,placedIds){
+  const week=getTddWeekKey(); if(tddNonRetenusWeek===week)return;
+  const excluded=registeredIds.filter(id=>!placedIds.has(id));
+  excluded.forEach(id=>{tddNonRetenus[id]=Number(tddNonRetenus[id]||0)+1;});
+  tddNonRetenusWeek=week; await saveTddNonRetenus(); renderTddNonRetenus();
+  if(excluded.length)toast(`🔄 ${excluded.length} joueur${excluded.length>1?'s':''} non retenu${excluded.length>1?'s':''} enregistré${excluded.length>1?'s':''} pour la rotation`);
+}
+async function resetTddNonRetenus(){
+  if(!confirm('Réinitialiser complètement la rotation des joueurs non retenus ?'))return;
+  tddNonRetenus={};tddNonRetenusWeek='';await saveTddNonRetenus();renderTddNonRetenus();toast('♻️ Rotation des non-retenus réinitialisée');
+}
 function sortTddPlayers(players){
-  return [...players].sort((a,b)=>{
-    const pa=a.ev_priority?1:0,pb=b.ev_priority?1:0;
-    if(pa!==pb)return pb-pa;
-    return getEffectivePower(b)-getEffectivePower(a)||String(a.name||'').localeCompare(String(b.name||''));
-  });
-}
-
-const T1_TYPE_MULTIPLIERS={avion:1.06,missile:1.03,tank:1,hybride:0.9,mixte:0.9,missile_hybride:0.9};
-let t1CompositionError='';
-function getT1TypeKey(player){
-  const type=String(player?.team1_type||player?.t1_type||'').trim().toLowerCase();
-  if(type==='mixte'||type==='missile_hybride')return 'hybride';
-  return ['tank','avion','missile','hybride'].includes(type)?type:'';
-}
-function getEffectivePower(player){
-  const rawT1=Number(player?.t1_power??player?.power_t1);
-  const t1Power=Number.isFinite(rawT1)&&rawT1>0?rawT1:0;
-  const rawT2=Number(player?.team2_power);
-  const t2Power=Number.isFinite(rawT2)&&rawT2>0?rawT2:t1Power*0.75;
-  const type=String(player?.team1_type||player?.t1_type||'').trim().toLowerCase();
-  const multiplier=Object.prototype.hasOwnProperty.call(T1_TYPE_MULTIPLIERS,type)?T1_TYPE_MULTIPLIERS[type]:1;
-  return t1Power*multiplier+(t2Power*0.35);
-}
-async function loadLatestT1Composition(players=participants){
-  players.forEach(player=>{
-    player.t1_power=Number(player.power_t1)||0;
-    player.team1_type=null;
-    player.team2_power=null;
-    player.team2_type=null;
-  });
-  if(!sb){t1CompositionError='Connexion à la base de données indisponible.';return false;}
-  try{
-    const {data:rounds,error:roundError}=await sb.from('t1_rounds')
-      .select('id').order('opened_at',{ascending:false}).limit(1);
-    if(roundError)throw roundError;
-    const round=rounds?.[0];
-    if(round){
-      const {data:submissions,error}=await sb.from('t1_submissions')
-        .select('participant_id,power,team1_type,team2_power,team2_type').eq('round_id',round.id);
-      if(error)throw error;
-      const byPlayer=new Map((submissions||[]).map(entry=>[Number(entry.participant_id),entry]));
-      players.forEach(player=>{
-        const submission=byPlayer.get(Number(player.id));
-        if(!submission)return;
-        const submittedPower=Number(submission.power);
-        if(Number.isFinite(submittedPower)&&submittedPower>0)player.t1_power=submittedPower;
-        player.team1_type=submission.team1_type||null;
-        player.team2_power=Number(submission.team2_power)||null;
-        player.team2_type=submission.team2_type||null;
-      });
-    }
-    t1CompositionError='';
-    return true;
-  }catch(error){
-    t1CompositionError=error.message||String(error);
-    console.error('Chargement des compositions T1 impossible :',error);
-    return false;
-  }
-}
-function teamTypeBadge(player){
-  const rawType=String(player?.team1_type||player?.t1_type||'').trim().toLowerCase();
-  const labels={tank:'Tank',avion:'Avion',missile:'Missile',hybride:'Hybride',mixte:'Mixte',missile_hybride:'Missile hybride'};
-  const label=labels[rawType];
-  if(!label)return '';
-  const type=getT1TypeKey(player)||'hybride';
-  return `<span class="team-type-badge ${type}" title="Type de l’équipe 1 : ${escapeHtml(label)}">${escapeHtml(label)}</span>`;
+  return [...players].sort((a,b)=>{const fa=Number(tddNonRetenus[a.id]||0),fb=Number(tddNonRetenus[b.id]||0);if(fa!==fb)return fb-fa;const pa=a.ev_priority?1:0,pb=b.ev_priority?1:0;if(pa!==pb)return pb-pa;return (b.power_t1||0)-(a.power_t1||0);});
 }
 
 async function loadTddFairStats(){
@@ -1525,12 +1180,7 @@ async function loadTddFairStats(){
   try{
     const {data}=await sb.from('app_config').select('value').eq('key',TDD_FAIR_ROTATION_KEY).maybeSingle();
     if(data&&data.value){
-      tddFairStats={
-        counts:data.value.counts||{},
-        starters:data.value.starters||{},
-        history:data.value.history||{},
-        week:data.value.week||''
-      };
+      tddFairStats={counts:data.value.counts||{},starters:data.value.starters||{},week:data.value.week||''};
     }
   }catch(e){}
   updateTddFairRotationUi();
@@ -1552,50 +1202,18 @@ function toggleTddFairRotation(){
   toast(evFairRotation?'🔄 Rotation équitable ON — compatible avec EL priorité':'🔄 Rotation équitable OFF');
 }
 function getTddFairKey(){return getTddWeekKey();}
-function getTddFairHistoryWeeks(){
-  return Object.keys(tddFairStats.history||{}).sort().reverse();
-}
-function getTddFairRecentCounts(){
-  const history=tddFairStats.history||{};
-  const weeks=getTddFairHistoryWeeks().slice(0,8);
-  if(!weeks.length){
-    return {
-      counts:tddFairStats.counts||{},
-      starters:tddFairStats.starters||{}
-    };
-  }
-  const counts={}, starters={};
-  weeks.forEach(week=>{
-    (history[week]?.placed||[]).forEach(id=>{
-      counts[id]=Number(counts[id]||0)+1;
-    });
-    (history[week]?.starters||[]).forEach(id=>{
-      starters[id]=Number(starters[id]||0)+1;
-    });
-  });
-  return {counts,starters};
-}
-function tddFairRandomRank(playerId,week){
-  const text=String(week)+'|'+String(playerId);
-  let hash=2166136261;
-  for(let i=0;i<text.length;i++){
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash,16777619);
-  }
-  return (hash>>>0);
-}
 function buildTddFairRank(players){
-  const recent=getTddFairRecentCounts();
-  const counts=recent.counts, starters=recent.starters;
-  const week=getTddFairKey();
+  const counts=tddFairStats.counts||{}, starters=tddFairStats.starters||{};
   return [...players].sort((a,b)=>{
     const ac=Number(counts[a.id]||0), bc=Number(counts[b.id]||0);
     if(ac!==bc)return ac-bc;
     const as=Number(starters[a.id]||0), bs=Number(starters[b.id]||0);
     if(as!==bs)return as-bs;
-    const ra=tddFairRandomRank(a.id,week), rb=tddFairRandomRank(b.id,week);
-    if(ra!==rb)return ra-rb;
-    return String(a.name||'').localeCompare(String(b.name||''));
+    const af=Number(tddNonRetenus[a.id]||0), bf=Number(tddNonRetenus[b.id]||0);
+    if(af!==bf)return bf-af;
+    const ap=a.ev_priority?1:0,bp=b.ev_priority?1:0;
+    if(ap!==bp)return bp-ap;
+    return (b.power_t1||0)-(a.power_t1||0);
   });
 }
 async function recordTddFairParticipation(placedIds,starterIds){
@@ -1605,10 +1223,6 @@ async function recordTddFairParticipation(placedIds,starterIds){
   // Une seule comptabilisation automatique par semaine pour éviter qu'un second clic
   // sur « équilibrer » ne fasse artificiellement monter les compteurs.
   if(tddFairStats.week===week)return;
-  tddFairStats.history=tddFairStats.history||{};
-  tddFairStats.history[week]={placed:[...ids],starters:[...starterIds]};
-  const weeks=getTddFairHistoryWeeks();
-  weeks.slice(8).forEach(oldWeek=>delete tddFairStats.history[oldWeek]);
   ids.forEach(id=>{tddFairStats.counts[id]=Number(tddFairStats.counts[id]||0)+1;});
   starterIds.forEach(id=>{tddFairStats.starters[id]=Number(tddFairStats.starters[id]||0)+1;});
   tddFairStats.week=week;
@@ -1642,35 +1256,6 @@ async function loadAll(){
   try{return await _loadAllInFlight;}
   finally{_loadAllInFlight=null;}
 }
-function buildEventTeams(rows){
-  if(!rows?.length)return null;
-  const teams={A:null,B:null};
-  const rowsByTeam=new Map();
-  rows.forEach(row=>{
-    let rowsByCategory=rowsByTeam.get(row.team_key);
-    if(!rowsByCategory){
-      rowsByCategory=new Map();
-      rowsByTeam.set(row.team_key,rowsByCategory);
-    }
-    let categoryRows=rowsByCategory.get(row.cat_key);
-    if(!categoryRows){
-      categoryRows=[];
-      rowsByCategory.set(row.cat_key,categoryRows);
-    }
-    categoryRows.push(row);
-  });
-  rowsByTeam.forEach((rowsByCategory,teamKey)=>{
-    const team=makeEmptyTeam();
-    CATEGORIES.forEach(category=>{
-      team[category.key]=(rowsByCategory.get(category.key)||[])
-        .sort((a,b)=>a.position-b.position)
-        .map(row=>participants.find(player=>Number(player.id)===Number(row.participant_id))||row.participants)
-        .filter(Boolean);
-    });
-    teams[teamKey]=team;
-  });
-  return teams.A?teams:null;
-}
 async function _loadAllImpl(){
   if(!sb)return;
   try{
@@ -1682,18 +1267,14 @@ async function _loadAllImpl(){
       sb.from('event_teams').select('*,participants(*)').order('position')
     ]);
     if(pErr||hErr)throw pErr||hErr;
-    participants=pData||[];
-    await loadLatestT1Composition(participants);
-    history=hData||[];weeksHistory=wData||[];if(rwData&&rwAllowed()){rwRefreshPlayerSelects();rwRenderInput();rwRender();}
+    participants=pData||[];history=hData||[];weeksHistory=wData||[];if(rwData&&rwAllowed()){rwRefreshPlayerSelects();rwRenderInput();rwRender();}
     // Afficher immédiatement les historiques dès que les données sont chargées.
     // Ainsi, une erreur dans une autre section (TDD, Canyon, etc.) ne peut plus
     // laisser ces deux zones bloquées sur « Chargement… ».
     renderHistFiltered();
     renderArchiveList();
-    await Promise.all([
-      loadTddFairStats(),
-      loadCanyonNonRetenus()
-    ]);
+    await loadTddNonRetenus();
+    await loadTddFairStats();
     evRoles={};
     if(erData){
       erData.forEach(r=>{evRoles[r.player_id]=r.role;});
@@ -1703,8 +1284,19 @@ async function _loadAllImpl(){
         document.getElementById('evNb2').classList.toggle('active',evNbTeams===2);
       }
     }
-    evTeams=buildEventTeams(etData);
-    evTeamsLoaded=!!evTeams;
+    if(etData&&etData.length>0){
+      const teams={A:null,B:null};
+      const teamKeys=[...new Set(etData.map(r=>r.team_key))];
+      teamKeys.forEach(tk=>{
+        const team=makeEmptyTeam();
+        CATEGORIES.forEach(cat=>{
+          const rows=etData.filter(r=>r.team_key===tk&&r.cat_key===cat.key).sort((a,b)=>a.position-b.position);
+          team[cat.key]=rows.map(r=>r.participants).filter(Boolean);
+        });
+        teams[tk]=team;
+      });
+      evTeams=teams.A?teams:null;evTeamsLoaded=!!evTeams;
+    }else{evTeams=null;evTeamsLoaded=false;}
     const ids=new Set(participants.map(p=>p.id));
     presentIds=new Set([...presentIds].filter(id=>ids.has(id)));
     setStatus('on','Connecté · temps réel actif');
@@ -1714,7 +1306,8 @@ async function _loadAllImpl(){
     await fetchAvailabilitySession('tdd');
     await loadTddTeamSlots();
     await loadTddSlotVotes();
-    // Charger votes et corrections staff avant d'appliquer les rôles du sondage.
+    // Charger les votes avant d'afficher la présélection : au rechargement,
+    // event_roles ne doit pas masquer les réponses du sondage actif.
     await loadPollResults();
     applyTddPollRolesToEvent();
     if(canSeeSection('sectionStats'))renderStats();
@@ -1737,23 +1330,20 @@ function subscribeRT(){
       // n'a jamais ouvert la page publique du sondage sur cet appareil.
       await fetchAvailabilitySession('tdd');
       if(!availabilityState.tdd){updatePollEvBanner();return;}
-      let query=sb.from('tdd_poll').select('participant_id,response');
-      query=query.eq('session_id',availabilityState.tdd.id);
-      const {data,error}=await query;
+      const {data,error}=await sb.from('tdd_poll').select('participant_id,response');
       if(error)throw error;
       pollResults={};
       (data||[]).forEach(r=>{pollResults[r.participant_id]=r.response;});
       // Le rôle et le créneau sont deux données distinctes du même vote.
       await loadTddSlotVotes();
-      if(await loadTddRoleOverrides())applyTddPollRolesToEvent();
+      applyTddPollRolesToEvent();
       updatePollEvBanner();renderPollStaffTable();updateEvBanner();
     }catch(e){console.warn('Synchronisation TDD :',e);}
   }
   // Rattrapage périodique si Supabase Realtime ne transmet pas un changement.
-  setInterval(()=>{if(currentUser&&document.visibilityState!=='hidden')refreshTddSelectionFromVotes();},10000);
+  setInterval(()=>{if(currentUser)refreshTddSelectionFromVotes();},10000);
   sb.channel('tdd_poll_main').on('postgres_changes',{event:'*',schema:'public',table:'tdd_poll'},(payload)=>{
     const r=payload.new||payload.old;
-    if(r?.session_id&&availabilityState.tdd?.id&&r.session_id!==availabilityState.tdd.id)return;
     if(payload.eventType==='DELETE'){if(r)delete pollResults[r.participant_id];}
     else if(r){pollResults[r.participant_id]=r.response;}
     updatePollEvBanner();
@@ -1790,15 +1380,27 @@ function subscribeRT(){
         if(data.length>0&&data[0].nb_teams){evNbTeams=data[0].nb_teams;document.getElementById('evNb1').classList.toggle('active',evNbTeams===1);document.getElementById('evNb2').classList.toggle('active',evNbTeams===2);}
       }
       initEvRoles();
-      // Recharger les corrections staff avant de réappliquer les rôles du sondage.
-      if(await loadTddRoleOverrides())applyTddPollRolesToEvent();
+      // Une mise à jour event_roles ne doit pas faire disparaître la présélection
+      // issue du sondage TDD toujours ouvert.
+      applyTddPollRolesToEvent();
       renderEventPlayers();updateEvBanner();
     })
     .on('postgres_changes',{event:'*',schema:'public',table:'event_teams'},async()=>{
       if(_evSaving)return; // ignore pendant un save en cours (DELETE + INSERT)
       const{data}=await sb.from('event_teams').select('*,participants(*)').order('position');
-      evTeams=buildEventTeams(data);
-      evTeamsLoaded=!!evTeams;
+      if(data&&data.length>0){
+        const teams={A:null,B:null};
+        const teamKeys=[...new Set(data.map(r=>r.team_key))];
+        teamKeys.forEach(tk=>{
+          const team=makeEmptyTeam();
+          CATEGORIES.forEach(cat=>{
+            const rows=data.filter(r=>r.team_key===tk&&r.cat_key===cat.key).sort((a,b)=>a.position-b.position);
+            team[cat.key]=rows.map(r=>r.participants).filter(Boolean);
+          });
+          teams[tk]=team;
+        });
+        evTeams=teams.A?teams:null;evTeamsLoaded=!!evTeams;
+      }else{evTeams=null;evTeamsLoaded=false;}
       renderEventTeams();
     })
     .subscribe();
@@ -1828,6 +1430,12 @@ function getCurrentMonday(){
   const monday=new Date(now);
   monday.setDate(now.getDate()+diff); // ← ne mute pas now
   return toLocalDateString(monday); // ← date locale, pas UTC
+}
+
+function getDateForDayOfWeek(weekStart,dayIndex){
+  const d=new Date(weekStart);
+  d.setDate(d.getDate()+dayIndex);
+  return d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
 }
 
 function formatDateShort(dateStr){
@@ -1912,20 +1520,7 @@ navigator.clipboard.writeText(txt)
   .catch(()=>toast('Erreur de copie'));
 }
 
-const coffreDaysCache=new WeakMap();
-function getCoffres(p){
-  const raw=p.coffres_days;
-  const cached=coffreDaysCache.get(p);
-  if(cached&&cached.raw===raw)return cached.days.slice();
-  let days;
-  try{days=JSON.parse(raw||'[false,false,false,false,false]');}
-  catch{days=[false,false,false,false,false];}
-  if(Array.isArray(days)){
-    coffreDaysCache.set(p,{raw,days});
-    return days.slice();
-  }
-  return days;
-}
+function getCoffres(p){try{return JSON.parse(p.coffres_days||'[false,false,false,false,false]')}catch{return[false,false,false,false,false]}}
 function isEligible(p){return getCoffres(p).every(d=>d===false)}
 async function toggleCoffre(id,dayIdx){
   if(busy)return;const p=participants.find(x=>x.id===id);if(!p)return;
@@ -1985,6 +1580,20 @@ async function draw(presentOnly){
   await Promise.all(ops);setBusy(false);
 }
 
+function openManual(){
+  document.getElementById('manualPlayers').innerHTML=participants.map(p=>`<input type="checkbox" class="manual-player" value="${p.id}" checked style="display:none">`).join('');
+  refreshManualSelects();openModal('manualModal');
+}
+
+function refreshManualSelects(){
+  const checked=[...document.querySelectorAll('.manual-player:checked')].map(el=>parseInt(el.value));
+  const pool=participants.filter(p=>checked.includes(p.id));
+  const opts=pool.map(p=>`<option value="${p.id}">${p.name}${isEligible(p)?' 🏆':''}</option>`).join('');
+  document.getElementById('manDrv').innerHTML=opts||'<option>— aucun —</option>';
+  document.getElementById('manVip').innerHTML=opts||'<option>— aucun —</option>';
+  if(pool.length>1)document.getElementById('manVip').selectedIndex=1;
+}
+
 async function doManual(){
   const checked=[...document.querySelectorAll('.manual-player:checked')].map(el=>parseInt(el.value));
   if(checked.length<2){toast('Sélectionne au moins 2 joueurs');return;}
@@ -2027,9 +1636,7 @@ async function archiveWeekFromParticipants(){
   setBusy(true);
   const now=new Date().toISOString();
   // Récupérer les réponses du sondage pour les archiver avec la semaine
-  let pollSnapQuery=sb.from('tdd_poll').select('participant_id,response');
-  if(availabilityState.tdd?.id)pollSnapQuery=pollSnapQuery.eq('session_id',availabilityState.tdd.id);
-  const {data:pollSnap}=await pollSnapQuery;
+  const {data:pollSnap} = await sb.from('tdd_poll').select('participant_id,response');
   const pollMap = {};
   (pollSnap||[]).forEach(r=>{ pollMap[r.participant_id]=r.response; });
 
@@ -2059,15 +1666,9 @@ async function saveRestorePoint(){
   if(!isAdmin())return;
   const nameInp=document.getElementById('restorePointName');
   const label=(nameInp&&nameInp.value.trim())||('Point du '+new Date().toLocaleString('fr-FR'));
-  const[
-    {data:histData},
-    {data:weeksData},
-    {data:drawsData}
-  ]=await Promise.all([
-    sb.from('historique').select('*').order('created_at',{ascending:false}),
-    sb.from('weeks_history').select('*').order('archived_at',{ascending:false}),
-    sb.from('weekly_draws').select('*').order('week_start').order('day_index')
-  ]);
+  const{data:histData}=await sb.from('historique').select('*').order('created_at',{ascending:false});
+  const{data:weeksData}=await sb.from('weeks_history').select('*').order('archived_at',{ascending:false});
+  const{data:drawsData}=await sb.from('weekly_draws').select('*').order('week_start').order('day_index');
   const snap={
     label,
     participants:participants.map(p=>({...p})),
@@ -2436,38 +2037,10 @@ function copyWeeklyText(){
 }
 
 
-let playerWeeksIndexSource=null;
-let playerWeeksIndex=new Map();
-function getPlayerWeeks(p){
-  if(playerWeeksIndexSource!==weeksHistory){
-    playerWeeksIndexSource=weeksHistory;
-    playerWeeksIndex=new Map();
-    weeksHistory.forEach(week=>{
-      if(!playerWeeksIndex.has(week.participant_name))playerWeeksIndex.set(week.participant_name,[]);
-      playerWeeksIndex.get(week.participant_name).push(week);
-    });
-    playerWeeksIndex.forEach(weeks=>weeks.sort((a,b)=>new Date(a.archived_at)-new Date(b.archived_at)));
-  }
-  return [...(playerWeeksIndex.get(p.name)||[])];
-}
+function getPlayerWeeks(p){return weeksHistory.filter(w=>w.participant_name===p.name).sort((a,b)=>new Date(a.archived_at)-new Date(b.archived_at));}
 function getBestStreak(weeks){let best=0,cur=0;weeks.forEach(w=>{if(w.validated){cur++;best=Math.max(best,cur);}else cur=0;});return best;}
 function getCurrentStreak(weeks){let cur=0;for(let i=weeks.length-1;i>=0;i--){if(weeks[i].validated)cur++;else break;}return cur;}
-let lastDrawIndexSource=null;
-let lastDriverDrawByName=new Map();
-let lastVipDrawByName=new Map();
-function getLastDrawDate(name,role){
-  if(lastDrawIndexSource!==history){
-    lastDrawIndexSource=history;
-    lastDriverDrawByName=new Map();
-    lastVipDrawByName=new Map();
-    history.forEach(draw=>{
-      if(!lastDriverDrawByName.has(draw.driver))lastDriverDrawByName.set(draw.driver,draw.created_at);
-      if(!lastVipDrawByName.has(draw.vip))lastVipDrawByName.set(draw.vip,draw.created_at);
-    });
-  }
-  const draws=role==='driver'?lastDriverDrawByName:lastVipDrawByName;
-  return draws.has(name)?new Date(draws.get(name)):null;
-}
+function getLastDrawDate(name,role){const f=history.find(h=>role==='driver'?h.driver===name:h.vip===name);return f?new Date(f.created_at):null;}
 
 
 // ── Mémoire tampon 48h post-archivage ──────────────────────────────────────
@@ -3560,7 +3133,13 @@ async function savePlayerNote(playerId, note){
 
 /* ══ FONCTIONNALITÉS NOUVELLES ══════════════════════════════════════════ */
 
-/* ── Notes joueur ── */
+/* ── Feat 1 : Historique sondage — affiché dans la fiche joueur ── */
+function getPollHistory(playerName){
+  return weeksHistory.filter(w=>w.participant_name===playerName&&w.poll_response)
+    .sort((a,b)=>new Date(b.archived_at)-new Date(a.archived_at));
+}
+
+/* ── Feat 2 : Notes joueur ── */
 async function savePlayerNote(playerId, note){
   if(!isAdminOrStaff()||!sb) return;
   const val = note.trim()||null;
@@ -3568,8 +3147,33 @@ async function savePlayerNote(playerId, note){
   if(!error){ const p=participants.find(x=>x.id===playerId); if(p) p.note=val; }
 }
 
-/* ── Filtres historique + onglet remplacements ── */
+/* ── Feat 3 : Alerte régression coffres ── */
+function updateRegressionAlert(){
+  const banner = document.getElementById('alertRegressionBanner');
+  const list   = document.getElementById('alertRegressionList');
+  if(!banner||!list) return;
+  const regressing = participants.filter(p=>{
+    const w = getPlayerWeeks(p);
+    if(w.length < 2) return false;
+    const last2 = w.slice(-2);
+    return !last2[0].validated && !last2[1].validated; // 2 semaines consécutives sans valider
+  });
+  if(!regressing.length){ banner.style.display='none'; return; }
+  banner.style.display='';
+  list.innerHTML = regressing.map(p=>`
+    <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 10px;background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.2);border-radius:99px;color:#FF6B6B;font-weight:700">
+      ${p.is_priority?'⭐ ':''} ${p.name}
+    </span>`).join('');
+}
+
+/* ── Feat 4 : Filtres historique + onglet remplacements ── */
 let _histFilter = 'all';
+function setHistFilter(filter, btn){
+  _histFilter = filter;
+  document.querySelectorAll('.hist-filter-btn').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  renderHistFiltered();
+}
 
 function renderHistFiltered(){
   const el = document.getElementById('histList');
@@ -3666,9 +3270,6 @@ async function recalcDrawStats(){
 
 let canyonNbTeams = 1;
 let canyonRoles   = {};   // {playerId: 'starter'|'sub'|'none'}
-let canyonElPriority=true;
-let canyonNonRetenus={};
-let canyonNonRetenusWeek='';
 // Les votes du sondage alimentent directement la présélection Canyon.
 // Ne modifie jamais les équipes déjà équilibrées (canyonTeams).
 // Sauvegarde de la présélection au moment de la clôture, partagée entre appareils.
@@ -3693,101 +3294,6 @@ function syncCanyonRolesFromPoll(){
   }
 }
 
-async function loadCanyonNonRetenus(){
-  if(!sb)return;
-  try{
-    const {data,error}=await sb.from('app_config').select('value').eq('key',CANYON_NON_RETENUS_CONFIG_KEY).maybeSingle();
-    if(error)throw error;
-    if(data?.value){
-      canyonNonRetenus=data.value.counts||{};
-      canyonNonRetenusWeek=data.value.week||'';
-    }
-    renderCanyonNonRetenus();
-  }catch(error){console.warn('Rotation Canyon non chargée :',error.message);}
-}
-
-async function saveCanyonNonRetenus(){
-  if(!sb)throw new Error('Supabase indisponible');
-  const {error}=await sb.from('app_config').upsert({
-    key:CANYON_NON_RETENUS_CONFIG_KEY,
-    value:{counts:canyonNonRetenus,week:canyonNonRetenusWeek},
-    updated_at:new Date().toISOString()
-  });
-  if(error)throw error;
-}
-
-function renderCanyonNonRetenus(){
-  const summary=document.getElementById('canyonRotationSummary');
-  const list=document.getElementById('canyonRotationList');
-  if(!summary||!list)return;
-  const entries=Object.entries(canyonNonRetenus)
-    .map(([id,count])=>({player:participants.find(p=>String(p.id)===String(id)),count:Number(count)||0}))
-    .filter(entry=>entry.player&&entry.count>0)
-    .sort((a,b)=>b.count-a.count||a.player.name.localeCompare(b.player.name,'fr'));
-  summary.textContent=entries.length
-    ?`🔄 Rotation : ${entries.length} joueur${entries.length>1?'s':''} à rattraper`
-    :'🔄 Rotation : aucun joueur en attente';
-  list.innerHTML=entries.length
-    ?`<div style="padding:8px 12px;border:1px solid rgba(255,184,77,0.2);background:rgba(255,184,77,0.05);border-radius:var(--radius-lg);font-size:11px;color:var(--text3)"><strong style="color:var(--amber)">🔄 Rotation des non-retenus</strong> — ils seront prioritaires à la prochaine répartition.<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${entries.map(entry=>`<span style="padding:3px 7px;border:1px solid var(--border2);border-radius:99px;color:var(--text)">${escapeHtml(entry.player.name)} <b style="color:var(--amber)">×${entry.count}</b></span>`).join('')}</div></div>`
-    :'';
-}
-
-function sortCanyonPlayers(players){
-  return [...players].sort((a,b)=>{
-    const aMissed=Number(canyonNonRetenus[a.id]||0);
-    const bMissed=Number(canyonNonRetenus[b.id]||0);
-    if(aMissed!==bMissed)return bMissed-aMissed;
-    return getEffectivePower(b)-getEffectivePower(a)||a.name.localeCompare(b.name,'fr');
-  });
-}
-
-function selectCanyonRoster(availableStarters,availableSubs,maxStarters,maxSubs){
-  const rankedStarters=sortCanyonPlayers(availableStarters);
-  const rankedSubs=sortCanyonPlayers(availableSubs);
-  const selectedStarters=rankedStarters.slice(0,maxStarters);
-  const overflowStarters=rankedStarters.slice(maxStarters);
-  const subsAsStarters=rankedSubs.slice(0,Math.max(0,maxStarters-selectedStarters.length));
-  const starterPool=[...selectedStarters,...subsAsStarters];
-  const subPool=[...overflowStarters,...rankedSubs.slice(subsAsStarters.length)].slice(0,maxSubs);
-  return {starterPool,subPool,overflowStarters,subsAsStarters};
-}
-
-async function recordCanyonNonRetenus(registeredIds,placedIds){
-  if(!sb)return null;
-  const excluded=registeredIds.filter(id=>!placedIds.has(id));
-  const week=getTddWeekKey();
-  if(canyonNonRetenusWeek===week)return null;
-  const counts={...canyonNonRetenus};
-  excluded.forEach(id=>{counts[id]=Number(counts[id]||0)+1;});
-  const {error}=await sb.from('app_config').upsert({
-    key:CANYON_NON_RETENUS_CONFIG_KEY,
-    value:{counts,week},
-    updated_at:new Date().toISOString()
-  });
-  if(error)throw error;
-  canyonNonRetenus=counts;
-  canyonNonRetenusWeek=week;
-  renderCanyonNonRetenus();
-  return excluded.length;
-}
-
-async function resetCanyonNonRetenus(){
-  if(!confirm('Réinitialiser complètement la rotation des joueurs Canyon non retenus ?'))return;
-  const previousCounts=canyonNonRetenus;
-  const previousWeek=canyonNonRetenusWeek;
-  canyonNonRetenus={};
-  canyonNonRetenusWeek='';
-  try{
-    await saveCanyonNonRetenus();
-    renderCanyonNonRetenus();
-    toast('♻️ Rotation Canyon réinitialisée');
-  }catch(error){
-    canyonNonRetenus=previousCounts;
-    canyonNonRetenusWeek=previousWeek;
-    alert('Réinitialisation de la rotation impossible : '+error.message);
-  }
-}
-
 let canyonTeams   = null; // {A: {starters: [...], subs: [...]}, B: {...}|null}
 
 function setCanyonNbTeams(n){
@@ -3797,21 +3303,6 @@ function setCanyonNbTeams(n){
   canyonTeams = null;
   renderCanyonTeams();
   updateCanyonSelectionSummary();
-}
-
-function updateCanyonElPriorityUi(){
-  const btn=document.getElementById('canyonElPriorityBtn');
-  const thumb=document.getElementById('canyonElPriorityThumb');
-  if(btn)btn.style.background=canyonElPriority?'var(--amber)':'var(--border2)';
-  if(thumb)thumb.style.transform=canyonElPriority?'translateX(18px)':'translateX(0px)';
-}
-
-function toggleCanyonElPriority(){
-  canyonElPriority=!canyonElPriority;
-  updateCanyonElPriorityUi();
-  toast(canyonElPriority
-    ?'⚡ EL priorité ON — les 5 plus forts seront placés en Électron libre au prochain équilibrage'
-    :'EL priorité OFF — les quatre zones seront équilibrées par puissance');
 }
 
 function updateCanyonSelectionSummary(){
@@ -3922,142 +3413,47 @@ async function canyonSelectAll(role){
 }
 
 function splitCanyonBalanced(players){
-  return splitBalanced(players);
-}
-
-function distributeCanyonZones(players,elPriority=canyonElPriority){
-  const zones=Object.fromEntries(CANYON_ZONES.map(zone=>[zone.key,[]]));
-  const scores=Object.fromEntries(CANYON_ZONES.map(zone=>[zone.key,0]));
-  const remaining=[...players].sort((a,b)=>getEffectivePower(b)-getEffectivePower(a)||a.name.localeCompare(b.name,'fr'));
-  const freeZone=elPriority?CANYON_ZONES.find(zone=>zone.key==='free'):null;
-  if(freeZone){
-    const freePlayers=remaining.splice(0,CANYON_ZONE_CAPACITY);
-    zones[freeZone.key]=freePlayers;
-    scores[freeZone.key]=freePlayers.reduce((sum,player)=>sum+getEffectivePower(player),0);
-  }
-  const distributionZones=CANYON_ZONES.filter(zone=>!freeZone||zone.key!==freeZone.key);
-  remaining.forEach(player=>{
-    const zone=distributionZones
-      .filter(({key})=>zones[key].length<CANYON_ZONE_CAPACITY)
-      .sort((a,b)=>scores[a.key]-scores[b.key]||zones[a.key].length-zones[b.key].length)[0];
-    if(zone){
-      zones[zone.key].push(player);
-      scores[zone.key]+=getEffectivePower(player);
-    }
-  });
-  return zones;
+  // Répartition serpentine par puissance décroissante
+  const sorted = [...players].sort((a,b)=>(b.power_t1||0)-(a.power_t1||0));
+  const A=[], B=[];
+  sorted.forEach((p,i)=>{ if(i%2===0)A.push(p); else B.push(p); });
+  return [A,B];
 }
 
 async function balanceCanyonTeams(){
-  const availableStarters = participants.filter(p=>canyonRoles[p.id]==='starter');
-  const availableSubs = participants.filter(p=>canyonRoles[p.id]==='sub');
+  const selectedStarters = participants.filter(p=>canyonRoles[p.id]==='starter');
+  const selectedSubs = participants.filter(p=>canyonRoles[p.id]==='sub');
   const maxStarters = CANYON_STARTERS_PER_TEAM * canyonNbTeams;
   const maxSubs = CANYON_SUBS_PER_TEAM * canyonNbTeams;
-  if(!availableStarters.length&&!availableSubs.length){ toast('Sélectionne au moins un joueur'); return; }
-  if(!(await loadLatestT1Composition())){
-    toast('Équilibrage annulé : chargement des types T1 impossible. '+t1CompositionError);
-    return;
-  }
+  if(!selectedStarters.length){ toast('Sélectionne au moins un titulaire'); return; }
+  if(selectedStarters.length>maxStarters){ toast(`⚠️ Trop de titulaires : ${selectedStarters.length}/${maxStarters}`); return; }
+  if(selectedSubs.length>maxSubs){ toast(`⚠️ Trop de remplaçants : ${selectedSubs.length}/${maxSubs}`); return; }
 
-  const {starterPool,subPool:selectedSubs}=selectCanyonRoster(availableStarters,availableSubs,maxStarters,maxSubs);
-
-  const starterGroups = canyonNbTeams===1 ? [starterPool] : splitCanyonBalanced(starterPool);
+  const starterGroups = canyonNbTeams===1 ? [selectedStarters] : splitCanyonBalanced(selectedStarters);
   const subGroups = canyonNbTeams===1 ? [selectedSubs] : splitCanyonBalanced(selectedSubs);
-  const AStarters=starterGroups[0]||[];
-  const A = {starters:AStarters, zones:distributeCanyonZones(AStarters), subs:subGroups[0]||[]};
-  const BStarters=starterGroups[1]||[];
-  const B = canyonNbTeams===2 ? {starters:BStarters, zones:distributeCanyonZones(BStarters), subs:subGroups[1]||[]} : null;
-  if(B){
-    rebalanceCanyonTeamTypeQuotas(A,B);
-    A.zones=distributeCanyonZones(A.starters);
-    B.zones=distributeCanyonZones(B.starters);
-  }
+  const A = {starters: starterGroups[0]||[], subs: subGroups[0]||[]};
+  const B = canyonNbTeams===2 ? {starters: starterGroups[1]||[], subs: subGroups[1]||[]} : null;
   canyonTeams = {A, B};
 
   const fmtPow = v=>v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
   const totalA = [...A.starters,...A.subs];
   const totalB = B ? [...B.starters,...B.subs] : [];
-  const registeredIds=[...availableStarters,...availableSubs].map(p=>p.id);
-  const placedIds=new Set([...A.starters,...A.subs,...(B?[...B.starters,...B.subs]:[])].map(p=>p.id));
-  const starterIds=new Set(availableStarters.map(p=>p.id));
-  const subIds=new Set(availableSubs.map(p=>p.id));
-  const startersMovedToSubs=selectedSubs.filter(p=>starterIds.has(p.id)).length;
-  const subsMovedToStarters=starterPool.filter(p=>subIds.has(p.id)).length;
-  const summary=`⚖️ Score réel — A : ${A.starters.length} tit. + ${A.subs.length} rem. (${fmtPow(totalA.reduce((sum,player)=>sum+getEffectivePower(player),0))})${B?` · B : ${B.starters.length} tit. + ${B.subs.length} rem. (${fmtPow(totalB.reduce((sum,player)=>sum+getEffectivePower(player),0))})`:''}${startersMovedToSubs?` · ${startersMovedToSubs} titulaire(s) reporté(s) en remplaçant`:''}${subsMovedToStarters?` · ${subsMovedToStarters} remplaçant(s) utilisé(s) comme titulaire(s)`:''}`;
+  toast(`⚖️ A : ${A.starters.length} tit. + ${A.subs.length} rem. (${fmtPow(totalA.reduce((s,p)=>s+(p.power_t1||0),0))})${B?` · B : ${B.starters.length} tit. + ${B.subs.length} rem. (${fmtPow(totalB.reduce((s,p)=>s+(p.power_t1||0),0))})`:''}`);
 
   renderCanyonTeams();
-  try{await saveCanyonTeamsToDB();}
-  catch(error){toast('Équipes affichées, mais sauvegarde impossible : '+error.message);return;}
-  try{
-    const excluded=await recordCanyonNonRetenus(registeredIds,placedIds);
-    toast(`${summary}${excluded?` · 🔄 ${excluded} joueur${excluded>1?'s':''} non retenu${excluded>1?'s':''} enregistré${excluded>1?'s':''} pour la rotation`:''}`);
-  }catch(error){
-    toast(`${summary} · Équipes sauvegardées, mais rotation non enregistrée : ${error.message}`);
+  // Sauvegarder dans app_config
+  if(sb){
+    await sb.from('app_config').upsert({
+      key:'canyon_teams',
+      value: {
+        teams: {
+          A: {starters:A.starters.map(p=>p.id), subs:A.subs.map(p=>p.id)},
+          B: B ? {starters:B.starters.map(p=>p.id), subs:B.subs.map(p=>p.id)} : null
+        },
+        updated_at: new Date().toISOString()
+      }
+    });
   }
-}
-
-async function saveCanyonTeamsToDB(){
-  if(!sb||!canyonTeams)return;
-  const toIds=team=>team?{
-    starters:team.starters.map(p=>p.id),
-    zones:Object.fromEntries(CANYON_ZONES.map(({key})=>[key,(team.zones[key]||[]).map(p=>p.id)])),
-    subs:team.subs.map(p=>p.id)
-  }:null;
-  const {error}=await sb.from('app_config').upsert({
-    key:'canyon_teams',
-    value:{teams:{A:toIds(canyonTeams.A),B:toIds(canyonTeams.B)},updated_at:new Date().toISOString()}
-  });
-  if(error)throw error;
-}
-
-let canyonDragSrc=null;
-function canyonDragStart(event,teamKey,type,zoneKey,index){
-  canyonDragSrc={teamKey,type,zoneKey,index};
-  event.dataTransfer.effectAllowed='move';
-  const player=type==='sub'?canyonTeams[teamKey].subs[index]:canyonTeams[teamKey].zones[zoneKey][index];
-  event.dataTransfer.setData('text/plain',String(player?.id||''));
-  const draggedElement=event.currentTarget;
-  setTimeout(()=>draggedElement.classList.add('dragging-team'),0);
-}
-function canyonDragOver(event){
-  event.preventDefault();
-  event.dataTransfer.dropEffect='move';
-  event.currentTarget.classList.add('canyon-drop-over');
-}
-function canyonDragLeave(event){
-  if(!event.currentTarget.contains(event.relatedTarget))event.currentTarget.classList.remove('canyon-drop-over');
-}
-async function canyonDrop(event,toTeamKey,toType,toZoneKey){
-  event.preventDefault();
-  event.currentTarget.classList.remove('canyon-drop-over');
-  if(!canyonDragSrc||!canyonTeams)return;
-  const {teamKey:fromTeamKey,type:fromType,zoneKey:fromZoneKey,index}=canyonDragSrc;
-  const fromTeam=canyonTeams[fromTeamKey];
-  const toTeam=canyonTeams[toTeamKey];
-  if(!fromTeam||!toTeam)return;
-  const fromList=fromType==='sub'?fromTeam.subs:fromTeam.zones[fromZoneKey];
-  const toList=toType==='sub'?toTeam.subs:toTeam.zones[toZoneKey];
-  if(!fromList||!toList)return;
-  const player=fromList[index];
-  if(!player)return;
-  if(fromList!==toList&&toList.length>=(toType==='sub'?CANYON_SUBS_PER_TEAM:CANYON_ZONE_CAPACITY)){
-    toast(toType==='sub'?'Cette équipe a déjà le maximum de remplaçants':'Cette zone est pleine');
-    return;
-  }
-  fromList.splice(index,1);
-  toList.push(player);
-  [fromTeam,toTeam].forEach(team=>{team.starters=CANYON_ZONES.flatMap(({key})=>team.zones[key]||[]);});
-  canyonRoles[player.id]=toType==='sub'?'sub':'starter';
-  canyonDragSrc=null;
-  renderCanyonPlayers();
-  renderCanyonTeams();
-  try{await saveCanyonTeamsToDB();}
-  catch(error){toast('Équipes affichées, mais sauvegarde impossible : '+error.message);}
-}
-function canyonDragEnd(){
-  canyonDragSrc=null;
-  document.querySelectorAll('.canyon-team-player').forEach(el=>el.classList.remove('dragging-team'));
-  document.querySelectorAll('.canyon-drop-over').forEach(el=>el.classList.remove('canyon-drop-over'));
 }
 
 function renderCanyonTeams(){
@@ -4067,56 +3463,39 @@ function renderCanyonTeams(){
   if(!canyonTeams){ result.innerHTML=''; if(copyBtn)copyBtn.style.display='none'; return; }
   if(copyBtn) copyBtn.style.display='';
 
-  const renderPlayers = (players, role, title,teamKey) => {
+  const renderPlayers = (players, role, title) => {
+    if(!players.length) return '';
+    const rowCls = role==='starter' ? 'role-starter' : 'role-sub';
     const titleCls = role==='starter' ? 'canyon-result-title starter' : 'canyon-result-title sub';
-    const type=role==='starter'?'starter':'sub';
     return `<div class="canyon-result-group">
       <div class="${titleCls}">${title} <span>(${players.length})</span></div>
-      <div class="canyon-drop-target" ondragover="canyonDragOver(event)" ondragleave="canyonDragLeave(event)" ondrop="canyonDrop(event,'${teamKey}','${type}','')">
-      ${players.length?players.map((p,i)=>`<div class="ev-team-player canyon-team-player" draggable="true" ondragstart="canyonDragStart(event,'${teamKey}','${type}','',${i})" ondragend="canyonDragEnd()">
+      ${players.map((p,i)=>`<div class="ev-team-player">
         <span class="ev-pnum">${i+1}</span>
-        <span class="ev-pname">${escapeHtml(p.name)}</span>${teamTypeBadge(p)}<span class="canyon-drag-handle" aria-hidden="true">⠿</span>
-      </div>`).join(''):'<div class="canyon-zone-empty">Déposer ici</div>'}
-      </div>
+        <span class="ev-pname">${p.name}</span>
+      </div>`).join('')}
     </div>`;
   };
 
-  const renderTeam = (team, teamKey,label, headerCls) => {
+  const renderTeam = (team, label, headerCls) => {
     if(!team) return '';
     const starters = Array.isArray(team) ? team : (team.starters||[]);
     const subs = Array.isArray(team) ? [] : (team.subs||[]);
-    const zones=Array.isArray(team)?distributeCanyonZones(starters):(team.zones||distributeCanyonZones(starters));
-    const zonesHtml=CANYON_ZONES.map(zone=>{
-      const players=zones[zone.key]||[];
-      return `<div class="canyon-result-group canyon-zone-group">
-        <div class="canyon-result-title zone">${zone.label} <span>(${players.length}/${CANYON_ZONE_CAPACITY})</span></div>
-        <div class="canyon-drop-target" ondragover="canyonDragOver(event)" ondragleave="canyonDragLeave(event)" ondrop="canyonDrop(event,'${teamKey}','starter','${zone.key}')">
-        ${players.length?players.map((p,i)=>`<div class="ev-team-player canyon-team-player" draggable="true" ondragstart="canyonDragStart(event,'${teamKey}','starter','${zone.key}',${i})" ondragend="canyonDragEnd()">
-          <span class="ev-pnum">${i+1}</span>
-          <span class="ev-pname">${escapeHtml(p.name)}</span>${teamTypeBadge(p)}<span class="canyon-drag-handle" aria-hidden="true">⠿</span>
-        </div>`).join(''):'<div class="canyon-zone-empty">Déposer ici</div>'}
-        </div>
-      </div>`;
-    }).join('');
     return `<div class="ev-team-card">
       <div class="ev-team-header ${headerCls}">
         <span class="ev-team-title ${headerCls}">⚔️ ${label}</span>
         <span class="ev-team-power">${starters.length}/${CANYON_STARTERS_PER_TEAM} tit. · ${subs.length}/${CANYON_SUBS_PER_TEAM} rempl.</span>
       </div>
       <div class="canyon-team-body">
-        ${zonesHtml}
-        ${renderPlayers(subs,'sub','Remplaçants',teamKey)}
+        ${renderPlayers(starters,'starter','Titulaires')}
+        ${renderPlayers(subs,'sub','Remplaçants')}
       </div>
       <button class="ev-copy-btn" onclick="copyCanyonText()">📋 Copier ${label}</button>
     </div>`;
   };
 
-  const teamPlayers=team=>Array.isArray(team)?team:[...(team?.starters||[]),...(team?.subs||[])];
-  const typeWarning=canyonTeams.B?typeQuotaWarningHtml(teamPlayers(canyonTeams.A),teamPlayers(canyonTeams.B)):'';
-  result.innerHTML = `${typeWarning}<div class="canyon-drag-hint">⠿ Glissez un joueur vers une autre zone, une autre équipe ou les remplaçants.</div>
-  <div class="ev-teams-grid${canyonTeams.B?' two':''}">
-    ${renderTeam(canyonTeams.A,'A','Équipe A','teamA')}
-    ${canyonTeams.B?renderTeam(canyonTeams.B,'B','Équipe B','teamB'):''}
+  result.innerHTML = `<div class="ev-teams-grid${canyonTeams.B?' two':''}">
+    ${renderTeam(canyonTeams.A,'Équipe A','teamA')}
+    ${canyonTeams.B?renderTeam(canyonTeams.B,'Équipe B','teamB'):''}
   </div>`;
 }
 
@@ -4153,15 +3532,8 @@ function copyCanyonText(){
     if(!teamData) return '';
     const starters = Array.isArray(teamData) ? teamData : (teamData.starters||[]);
     const subs     = Array.isArray(teamData) ? [] : (teamData.subs||[]);
-    const zones=Array.isArray(teamData)?distributeCanyonZones(starters):(teamData.zones||distributeCanyonZones(starters));
     let t = label+' ('+(starters.length+subs.length)+' joueurs) :\n';
-    if(starters.length){
-      t += 'Titulaires :\n';
-      CANYON_ZONES.forEach(zone=>{
-        const players=zones[zone.key]||[];
-        t+=zone.label+' ('+players.length+'/'+CANYON_ZONE_CAPACITY+') :\n'+players.map(p=>'- '+p.name).join('\n')+'\n';
-      });
-    }
+    if(starters.length){ t += 'Titulaires :\n'+starters.map(p=>'- '+p.name).join('\n')+'\n'; }
     if(subs.length){ t += 'Remplaçants :\n'+subs.map(p=>'- '+p.name).join('\n')+'\n'; }
     return t;
   };
@@ -4187,24 +3559,70 @@ function onDragEnd(){dragSrcIdx=null;document.querySelectorAll('.p-row').forEach
 
 function startEdit(idx){const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;row.querySelector('.name-disp').style.display='none';const inp=row.querySelector('.name-inp');inp.style.display='inline-block';inp.value=participants[idx].name;inp.focus();inp.select();}
 function commitEdit(idx){const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;renameName(participants[idx].id,participants[idx].name,row.querySelector('.name-inp').value);}
+function startEditPower(idx){if(!isAdminOrStaff())return;const row=document.querySelector(`[data-idx="${idx}"]`);if(!row)return;row.querySelector('.power-disp').style.display='none';const inp=row.querySelector('.power-inp');inp.style.display='block';inp.value=participants[idx].power_t1?(Number(participants[idx].power_t1)/1e6).toFixed(2):'';inp.focus();inp.select();}
+async function commitPower(idx){
+  if(!isAdminOrStaff())return;
+  const row=document.querySelector(`[data-idx="${idx}"]`);
+  const input=row?.querySelector('.power-inp');
+  const p=participants[idx];
+  if(!input||!p)return;
+  const raw=input.value.trim();
+  const val=raw?t1ParsePower(/[a-z]/i.test(raw)?raw:raw+'M'):null;
+  if(raw&&val===null){alert('Puissance invalide : indique par exemple 51.00 (en millions).');input.focus();return;}
+  if(val===null){alert('Indique une puissance en millions, par exemple 51.00.');input.focus();return;}
+  if(Number(p.power_t1)===val){render();return;}
+  if(!sb){alert('Connexion Supabase indisponible.');return;}
+  input.disabled=true;
+  setBusy(true);
+  try{
+    const {data,error}=await sb.from('participants').update({power_t1:val}).eq('id',p.id).select('id,power_t1').maybeSingle();
+    if(error)throw error;
+    if(!data)throw new Error('La base n’a modifié aucune ligne (autorisations RLS possibles).');
+    const saved=Number(data.power_t1);
+    if(!Number.isFinite(saved)||Math.abs(saved-val)>0.5){
+      throw new Error('Supabase a retourné '+String(data.power_t1)+' au lieu de '+val+'. Vérifie le type de la colonne power_t1 et les déclencheurs SQL.');
+    }
+    // Relire la valeur stockée pour ne jamais annoncer une réussite sur une valeur restée à zéro.
+    const {data:verified,error:readError}=await sb.from('participants').select('power_t1').eq('id',p.id).maybeSingle();
+    if(readError)throw readError;
+    if(!verified||Math.abs(Number(verified.power_t1)-val)>0.5){
+      throw new Error('La vérification après enregistrement a échoué : valeur en base = '+String(verified?.power_t1));
+    }
+    p.power_t1=Number(verified.power_t1);
+    render();
+    if(typeof renderStats==='function')renderStats();
+    toast('⚡ Puissance enregistrée : '+t1FormatPower(p.power_t1));
+  }catch(err){
+    console.error('Erreur correction puissance participant',err);
+    alert('Impossible d’enregistrer la puissance de '+p.name+' : '+(err?.message||err));
+    input.disabled=false;
+    input.focus();
+  }finally{setBusy(false);}
+}
 
-document.addEventListener('keydown',event=>{
-  const tab=event.target instanceof Element?event.target.closest('[role="tab"][data-dashboard-tab]'):null;
-  if(!tab)return;
-  const tabNav=tab.closest('[data-dashboard-tabs]');
-  const availableTabs=Array.from(tabNav.querySelectorAll('[role="tab"]:not([hidden])'));
-  const currentIndex=availableTabs.indexOf(tab);
-  let nextIndex;
-  if(event.key==='ArrowRight')nextIndex=(currentIndex+1)%availableTabs.length;
-  else if(event.key==='ArrowLeft')nextIndex=(currentIndex-1+availableTabs.length)%availableTabs.length;
-  else if(event.key==='Home')nextIndex=0;
-  else if(event.key==='End')nextIndex=availableTabs.length-1;
-  else return;
-  event.preventDefault();
-  const nextTab=availableTabs[nextIndex];
-  nextTab.focus();
-  nextTab.click();
-});
+function toggleSection(bodyId,toggleId){
+  const body=document.getElementById(bodyId);const toggle=document.getElementById(toggleId);if(!body||!toggle)return;
+  const isCollapsed=body.classList.contains('collapsed');
+  if(isCollapsed){
+    // À l'ouverture du tirage du train, afficher directement les joueurs tirés pour la semaine.
+    if(bodyId==='tirageBody'){
+      const planning=document.getElementById('planningBody');
+      const planningToggle=document.getElementById('planningToggle');
+      if(planning){
+        planning.classList.remove('collapsed');
+        planning.style.maxHeight='none';
+      }
+      if(planningToggle)planningToggle.classList.remove('collapsed');
+    }
+    body.classList.remove('collapsed');body.style.maxHeight='none';
+    const h=body.scrollHeight;body.style.maxHeight='0';body.getBoundingClientRect();
+    body.style.maxHeight=h+'px';toggle.classList.remove('collapsed');
+    setTimeout(()=>{if(!body.classList.contains('collapsed'))body.style.maxHeight='none'},400);
+  }else{
+    body.style.maxHeight=body.scrollHeight+'px';body.getBoundingClientRect();
+    body.style.maxHeight='0';body.classList.add('collapsed');toggle.classList.add('collapsed');
+  }
+}
 
 function updateDrawBtns(){
   const presPool=participants.filter(p=>presentIds.has(p.id));
@@ -4223,9 +3641,9 @@ function render(){
 
 
     head.style.display='';
-    const cols=`${showPres?'36px ':''}32px minmax(120px,1fr) repeat(5,28px) 90px${isAdmin()?' 32px':''}`;
+    const cols=`${showPres?'36px ':''}32px minmax(120px,1fr) 85px repeat(5,28px) 90px${isAdmin()?' 32px':''}`;
     head.style.gridTemplateColumns=cols;
-    head.innerHTML=`${showPres?'<span style="text-align:center">✓</span>':''}<span style="font-size:9px;text-align:center">#</span><span class="h-name">Nom</span>${DAYS.map(d=>`<span style="font-size:9px;text-align:center">${d}</span>`).join('')}<span style="font-size:9px;text-align:center">Élig.</span>${isAdmin()?'<span title="Priorité staff" style="font-size:9px;text-align:center">⭐</span>':''}`;
+    head.innerHTML=`${showPres?'<span style="text-align:center">✓</span>':''}<span style="font-size:9px;text-align:center">#</span><span class="h-name">Nom</span><span style="font-size:9px;color:var(--cyan);text-align:center">Puiss.</span>${DAYS.map(d=>`<span style="font-size:9px;text-align:center">${d}</span>`).join('')}<span style="font-size:9px;text-align:center">Élig.</span>${isAdmin()?'<span title="Priorité staff" style="font-size:9px;text-align:center">⭐</span>':''}`;
     if(!filtered.length){
       body.innerHTML=`<div style="padding:16px;font-size:13px;color:var(--text3);font-style:italic">${searchFilter?'Aucun résultat pour "'+searchFilter+'"':'Aucun participant.'}</div>`;
     }else{
@@ -4239,6 +3657,7 @@ function render(){
           ${showPres?`<div style="display:flex;align-items:center;justify-content:center"><input type="checkbox" class="cb-pres" ${isPresent?'checked':''} onchange="togglePresent(${p.id})" ondragstart="event.stopPropagation()"/></div>`:''}
           <span class="player-num">${realIdx+1}</span>
           <div class="name-cell"><span class="name-disp" onclick="startEdit(${realIdx})">${nameHtml}</span><input class="name-inp" ondragstart="event.stopPropagation()" onblur="commitEdit(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
+          <div class="power-cell"><span class="power-disp${!p.power_t1?' empty-val':''}" onclick="startEditPower(${realIdx})" title="${isAdminOrStaff()?'Cliquer pour corriger la puissance':'Puissance T1'}" style="${isAdminOrStaff()?'cursor:pointer':'cursor:default'}">${p.power_t1?t1FormatPower(p.power_t1):'—'}${isAdminOrStaff()?' ✏️':''}</span><input class="power-inp" type="text" inputmode="decimal" placeholder="51.00" title="Puissance en millions (M)" ondragstart="event.stopPropagation()" onblur="commitPower(${realIdx})" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape')render();"/></div>
           <div style="display:contents">${coffresBtns}</div>
           <div style="display:flex;align-items:center;justify-content:center;gap:4px"><span class="elig-btn ${elig?'yes':'no'}">${elig?'✓':'✗'}</span><button class="del-btn" onclick="removeName(${p.id})">×</button></div>
           ${isAdmin()?`<div style="display:flex;align-items:center;justify-content:center"><input type="checkbox" title="Priorité staff ⭐" ${p.is_priority?'checked':''} onchange="togglePriority(${p.id},this)" ondragstart="event.stopPropagation()" style="width:15px;height:15px;accent-color:var(--amber);cursor:pointer"/></div>`:''}
@@ -4310,6 +3729,14 @@ async function propagateRename(id, oldName, newName){
 async function reorder(ids){
   if(!sb)return;
   await Promise.all(ids.map((id,i)=>sb.from('participants').update({position:i}).eq('id',id)));
+}
+
+async function changeScore(id,type,delta){
+  if(busy)return;
+  const p=participants.find(x=>x.id===id);if(!p)return;
+  const field=type==='driver'?'driver_count':'vip_count';
+  const newVal=Math.max(0,(p[field]||0)+delta);
+  setBusy(true);await sb.from('participants').update({[field]:newVal}).eq('id',id);setBusy(false);
 }
 
 async function deleteHistoryEntry(id){
@@ -4504,6 +3931,16 @@ async function doImport(){
   }
 }
 
+function togglePresentMode(){
+  presentMode=!presentMode;
+  const btn=document.getElementById('presModeBtn');
+  btn.textContent=presentMode?'☑ Mode présents':'☐ Mode présents';
+  btn.classList.toggle('btn-primary',presentMode);
+  document.getElementById('presBanner').classList.toggle('on',presentMode);
+  if(!presentMode)presentIds.clear();
+  render();updateDrawBtns();
+}
+
 function togglePresent(id){
   if(presentIds.has(id))presentIds.delete(id);else presentIds.add(id);
   updatePresCount();updateDrawBtns();renderEligInfo();
@@ -4567,37 +4004,15 @@ function initEvRoles(){
 }
 
 async function evSetRole(playerId,role){
-  try{
-    await saveTddRoleOverrides([{id:playerId,role}]);
-  }catch(error){
-    console.error('Surcharge du rôle TDD non enregistrée :',error);
-    alert('Impossible de conserver cette correction pendant le sondage : '+(error.message||String(error))+' Exécute le fichier tdd-polls-migration.sql.');
-    return;
-  }
   evRoles[playerId]=role;
   // Ne pas reset evTeams pour conserver les équipes déjà équilibrées
-  const {error}=await sb.from('event_roles').upsert({player_id:playerId,role,nb_teams:evNbTeams,updated_at:new Date().toISOString()},{onConflict:'player_id'});
-  if(error){
-    console.error('Rôle d’événement non enregistré :',error);
-    alert('La correction du sondage est conservée, mais le rôle d’événement n’a pas pu être sauvegardé : '+error.message);
-  }
+  await sb.from('event_roles').upsert({player_id:playerId,role,nb_teams:evNbTeams,updated_at:new Date().toISOString()},{onConflict:'player_id'});
   updateEvBanner();renderEventPlayers();renderEventTeams();
 }
 
 async function evSelectAll(role){
-  try{
-    await saveTddRoleOverrides(participants.map(p=>({id:p.id,role})));
-  }catch(error){
-    console.error('Surcharges de rôles TDD non enregistrées :',error);
-    alert('Impossible de conserver ces corrections pendant le sondage : '+(error.message||String(error))+' Exécute le fichier tdd-polls-migration.sql.');
-    return;
-  }
   participants.forEach(p=>{evRoles[p.id]=role;});
-  if(participants.length){
-    const results=await Promise.all(participants.map(p=>sb.from('event_roles').upsert({player_id:p.id,role,nb_teams:evNbTeams,updated_at:new Date().toISOString()},{onConflict:'player_id'})));
-    const failed=results.find(result=>result.error);
-    if(failed){console.error('Rôles d’événement non enregistrés :',failed.error);alert('Les rôles ont été mis à jour localement, mais une erreur empêche leur sauvegarde : '+failed.error.message);}
-  }
+  if(participants.length)await Promise.all(participants.map(p=>sb.from('event_roles').upsert({player_id:p.id,role,nb_teams:evNbTeams,updated_at:new Date().toISOString()},{onConflict:'player_id'})));
   // Sélection globale = réinitialiser les équipes (changement massif)
   evTeams=null;
   updateEvBanner();renderEventPlayers();renderEventTeams();
@@ -4605,13 +4020,6 @@ async function evSelectAll(role){
 
 async function resetTeams(){
   if(!confirm('Réinitialiser tous les rôles ET les équipes pour tout le monde ?'))return;
-  try{
-    await saveTddRoleOverrides(participants.map(p=>({id:p.id,role:'none'})));
-  }catch(error){
-    console.error('Réinitialisation des rôles TDD non enregistrée :',error);
-    alert('Impossible de conserver cette réinitialisation pendant le sondage : '+(error.message||String(error))+' Exécute le fichier tdd-polls-migration.sql.');
-    return;
-  }
   evRoles={};evTeams=null;evTeamsLoaded=false;
   participants.forEach(p=>{evRoles[p.id]='none';});
   await Promise.all([
@@ -4749,78 +4157,63 @@ function renderTddFairResultStats(starters,placedIds){
   const starterPlacedIds=[...placedIds].filter(id=>evRoles[id]==='starter');
   const starterAsSubIds=[...placedIds].filter(id=>evRoles[id]==='starter' && ['A','B'].some(t=>evTeams?.[t]?.SUB?.some(p=>p.id===id)));
   const realSubIds=[...placedIds].filter(id=>evRoles[id]==='sub');
-  const recent=getTddFairRecentCounts();
-  const avg=starters.length?starters.reduce((sum,p)=>sum+Number(recent.counts?.[p.id]||0),0)/starters.length:0;
-  const green=starterPlacedIds.filter(id=>Number(recent.counts?.[id]||0)<avg).length;
-  const yellow=starterPlacedIds.filter(id=>Math.abs(Number(recent.counts?.[id]||0)-avg)<0.0001).length;
-  const red=starterPlacedIds.filter(id=>Number(recent.counts?.[id]||0)>avg).length;
+  const avg=starters.length?starters.reduce((sum,p)=>sum+Number(tddFairStats.counts?.[p.id]||0),0)/starters.length:0;
+  const green=starterPlacedIds.filter(id=>Number(tddFairStats.counts?.[id]||0)<avg).length;
+  const yellow=starterPlacedIds.filter(id=>Math.abs(Number(tddFairStats.counts?.[id]||0)-avg)<0.0001).length;
+  const red=starterPlacedIds.filter(id=>Number(tddFairStats.counts?.[id]||0)>avg).length;
   const overflow=starterAsSubIds.length;
-  el.innerHTML=`<div style="padding:9px 12px;border:1px solid rgba(124,159,255,0.2);background:rgba(124,159,255,0.05);border-radius:var(--radius-lg);font-size:11px;color:var(--text3)"><div style="font-weight:800;color:var(--blue);margin-bottom:6px">🔄 Rotation équitable sur les 8 dernières semaines</div><div style="display:flex;gap:8px;flex-wrap:wrap"><span>👤 ${starterPlacedIds.length-overflow} titulaires sélectionnés selon la rotation</span><span>↪️ ${overflow} titulaire${overflow>1?'s':''} reporté${overflow>1?'s':''} en remplaçant</span><span>🔁 ${realSubIds.length} remplaçant${realSubIds.length>1?'s':''} sélectionné${realSubIds.length>1?'s':''}</span></div><div style="margin-top:7px;display:flex;gap:8px;flex-wrap:wrap"><span>🟢 ${green} sous la moyenne de participations</span><span>🟡 ${yellow} dans la moyenne</span><span>🔴 ${red} au-dessus de la moyenne</span></div></div>`;
+  el.innerHTML=`<div style="padding:9px 12px;border:1px solid rgba(124,159,255,0.2);background:rgba(124,159,255,0.05);border-radius:var(--radius-lg);font-size:11px;color:var(--text3)"><div style="font-weight:800;color:var(--blue);margin-bottom:6px">🔄 Rotation de la semaine</div><div style="display:flex;gap:8px;flex-wrap:wrap"><span>👤 ${starterPlacedIds.length-overflow} titulaires sélectionnés selon la rotation</span><span>↪️ ${overflow} titulaire${overflow>1?'s':''} reporté${overflow>1?'s':''} en remplaçant</span><span>🔁 ${realSubIds.length} remplaçant${realSubIds.length>1?'s':''} sélectionné${realSubIds.length>1?'s':''}</span></div><div style="margin-top:7px;display:flex;gap:8px;flex-wrap:wrap"><span>🟢 ${green} sous la moyenne de participations</span><span>🟡 ${yellow} dans la moyenne</span><span>🔴 ${red} au-dessus de la moyenne</span></div></div>`;
 }
 
 async function balanceTeams(){
-  if(!(await loadLatestT1Composition())){
-    alert('Équilibrage annulé : chargement des types T1 impossible. '+t1CompositionError);
-    return;
-  }
-  if(!(await loadTddSlotVotes())||!(await loadTddTeamSlots())){
-    alert('Impossible de charger les créneaux TDD. Les équipes n’ont pas été équilibrées.');
-    return;
-  }
   if(evNbTeams===2&&!evAsymMode){
+    await loadTddSlotVotes();await loadTddTeamSlots();
     const pool=participants.filter(p=>evRoles[p.id]==='starter'||evRoles[p.id]==='sub');
     if(!pool.length){toast('Sélectionne au moins un joueur');return;}
     evTeams=tddBalancedSlots();
-    rebalanceEventTeamTypeQuotas(evTeams,(playerA,playerB)=>
-      tddSlotCompatible(playerA.id,'B')&&tddSlotCompatible(playerB.id,'A'));
     await saveEvTeamsToDB();
-    const placedIds=new Set(['A','B'].flatMap(k=>CATEGORIES.flatMap(c=>(evTeams[k]?.[c.key]||[]).map(p=>p.id))));
-    const starterPlacedIds=[];
-    if(evFairRotation){
-      ['A','B'].forEach(teamKey=>{
-        CATEGORIES.filter(cat=>cat.key!=='SUB').forEach(cat=>{
-          (evTeams[teamKey]?.[cat.key]||[]).forEach(p=>{
-            if(evRoles[p.id]==='starter')starterPlacedIds.push(p.id);
-          });
-        });
-      });
-      await recordTddFairParticipation(placedIds,starterPlacedIds);
-    }
+    const placed=new Set(['A','B'].flatMap(k=>CATEGORIES.flatMap(c=>(evTeams[k]?.[c.key]||[]).map(p=>p.id))));
+    await recordTddNonRetenus(pool.map(p=>p.id),placed);
     renderEventTeams();toast('⚖️ Équipes TDD équilibrées par horaires et sauvegardées');return;
   }
+  const allTddRegisteredIds=participants.filter(p=>evRoles[p.id]==='starter'||evRoles[p.id]==='sub').map(p=>p.id);
   let starters=sortTddPlayers(participants.filter(p=>evRoles[p.id]==='starter'));
   let subs=sortTddPlayers(participants.filter(p=>evRoles[p.id]==='sub'));
-  if(evNbTeams===1){
-    starters=tddPlayersForTeam(starters,'A');
-    subs=tddPlayersForTeam(subs,'A');
-  }
   const useFairRotation=evFairRotation&&!evAsymMode;
   if(useFairRotation){
     starters=buildTddFairRank(starters);
-    subs=buildTddFairRank(subs);
+    // Les remplaçants conservent la logique actuelle (rotation des non-retenus + puissance).
+    subs=sortTddPlayers(subs);
   }
   if(starters.length+subs.length<1){toast('Sélectionne au moins 1 joueur');return;}
 
   if(evNbTeams===1){
     if(useFairRotation){
       const cap=CATEGORIES.filter(c=>c.key!=='SUB').reduce((s,c)=>s+c.size,0);
-      const selectedStarters=starters.slice(0,cap);
-      const overflowStarters=starters.slice(cap);
-      const selectedSubs=[...overflowStarters,...subs].slice(0,TOTAL_SUBS);
-      evTeams={A:buildOneTeam(selectedStarters,selectedSubs,true),B:null};
-    }else{
-      evTeams={A:buildOneTeam(starters,subs),B:null};
+      const forced=starters.filter(p=>p.ev_priority);
+      const forcedSet=new Set(forced.map(p=>p.id));
+      starters=[...sortTddPlayers(forced),...buildTddFairRank(starters.filter(p=>!forcedSet.has(p.id)))].slice(0,cap);
     }
+    evTeams={A:buildOneTeam(starters,subs),B:null};
   } else if(evAsymMode){
     // Mode asymétrique : tous les joueurs triés par puissance
     // Équipe A = les N premiers (les plus forts), Équipe B = le reste
     const all=sortTddPlayers([...starters,...subs]);
     if(all.length<2){toast('Sélectionne au moins 2 joueurs');return;}
-    evTeams=tddAsymmetricSlotTeams(all);
-    const countTeam=team=>CATEGORIES.reduce((count,cat)=>count+(team?.[cat.key]?.length||0),0);
-    const powA=teamTotalEffectivePower(evTeams.A), powB=teamTotalEffectivePower(evTeams.B);
+    const nA = Math.min(Math.max(1, evAsymSizeA), all.length-1);
+    const groupA = all.slice(0, nA);
+    const groupB = all.slice(nA);
+    // Remplir les catégories avec les joueurs du groupe, le surplus va en SUB
+    // On calcule combien de places de titulaires existent (hors SUB)
+    const STARTER_SLOTS = CATEGORIES.filter(c=>c.key!=='SUB').reduce((s,c)=>s+c.size,0);
+    const titA = groupA.slice(0, STARTER_SLOTS);
+    const subA = groupA.slice(STARTER_SLOTS);
+    const titB = groupB.slice(0, STARTER_SLOTS);
+    const subB = groupB.slice(STARTER_SLOTS);
+    evTeams={A:buildOneTeam(titA, subA), B:buildOneTeam(titB, subB)};
+    const powA=teamTotalPower(evTeams.A), powB=teamTotalPower(evTeams.B);
     const fmtPow = v => v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
-    toast(`⚡ Score réel — A : ${countTeam(evTeams.A)} joueurs (${fmtPow(powA)}) · B : ${countTeam(evTeams.B)} joueurs (${fmtPow(powB)})`);
+    toast(`⚡ A : ${groupA.length} joueurs (${fmtPow(powA)}) · B : ${groupB.length} joueurs (${fmtPow(powB)})`);
   } else {
     const STARTER_SLOTS = CATEGORIES.filter(c=>c.key!=='SUB').reduce((s,c)=>s+c.size,0);
     const TOTAL_STARTER_CAP = STARTER_SLOTS * 2;
@@ -4830,15 +4223,14 @@ async function balanceTeams(){
 
     if(useFairRotation){
       // 1) La rotation équitable sélectionne d'abord les TITULAIRES.
-      //    Les titulaires excédentaires restent prioritaires comme remplaçants.
+      //    Les REMPLAÇANTS ne peuvent compléter les places titulaires que s'il en manque.
       const rankedStarters = buildTddFairRank(starters);
       const selectedStarterCount = Math.min(TOTAL_STARTER_CAP, rankedStarters.length);
       selectedStarterPool = rankedStarters.slice(0, selectedStarterCount);
       overflowStarterPool = rankedStarters.slice(selectedStarterCount);
 
-      // 2) Les remplaçants déclarés complètent les places restantes.
-      //    Ils ne prennent jamais une place titulaire tant qu'il reste des titulaires déclarés.
-      const rankedSubs = buildTddFairRank(subs);
+      // 2) S'il manque des titulaires, on complète les places titulaires avec les R.
+      const rankedSubs = sortTddPlayers(subs);
       const missingStarterSlots = Math.max(0, TOTAL_STARTER_CAP - selectedStarterPool.length);
       const subsUsedAsStarters = rankedSubs.slice(0, missingStarterSlots);
       selectedStarterPool = [...selectedStarterPool, ...subsUsedAsStarters];
@@ -4855,7 +4247,7 @@ async function balanceTeams(){
       selectedSubPool = sortTddPlayers(subs);
     }
 
-    // 4) Une fois la sélection faite, le score réel sert à équilibrer A/B.
+    // 4) Une fois la sélection faite, la puissance sert uniquement à équilibrer A/B.
     const [starterGroupA, starterGroupB] = splitBalanced(selectedStarterPool);
     const titA = starterGroupA.slice(0, STARTER_SLOTS);
     const titB = starterGroupB.slice(0, STARTER_SLOTS);
@@ -4865,7 +4257,8 @@ async function balanceTeams(){
     let subPoolA, subPoolB;
     if(useFairRotation){
       // Les dépassements de titulaires sont toujours placés avant les R dans le pool SUB.
-      const chosenSubPool = selectedSubPool.slice(0, TOTAL_SUBS * 2);
+      const orderedSubPool = [...overA, ...overB, ...selectedSubPool];
+      const chosenSubPool = orderedSubPool.slice(0, TOTAL_SUBS * 2);
       [subPoolA, subPoolB] = splitBalanced(chosenSubPool);
       subPoolA = subPoolA.slice(0, TOTAL_SUBS);
       subPoolB = subPoolB.slice(0, TOTAL_SUBS);
@@ -4888,14 +4281,10 @@ async function balanceTeams(){
       Promise.all(toReset.map(p=>sb.from('participants').update({ev_priority:false}).eq('id',p.id)));
     }
 
-    const powA=teamTotalEffectivePower(evTeams.A), powB=teamTotalEffectivePower(evTeams.B);
+    const powA=teamTotalPower(evTeams.A), powB=teamTotalPower(evTeams.B);
     const fmtPow=v=>v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v;
     const titleCountInSubs = useFairRotation ? overflowStarterPool.length : 0;
-    toast(`⚖️ Score réel — A : ${titA.length} tit. + ${subPoolA.length} rem. (${fmtPow(powA)}) · B : ${titB.length} tit. + ${subPoolB.length} rem. (${fmtPow(powB)})${titleCountInSubs?` · ${titleCountInSubs} titulaire${titleCountInSubs>1?'s':''} reporté${titleCountInSubs>1?'s':''} en SUB`:''}`);
-  }
-  if(evTeams?.B){
-    rebalanceEventTeamTypeQuotas(evTeams,(playerA,playerB)=>
-      tddSlotCompatible(playerA.id,'B')&&tddSlotCompatible(playerB.id,'A'));
+    toast(`⚖️ A : ${titA.length} tit. + ${subPoolA.length} rem. (${fmtPow(powA)}) · B : ${titB.length} tit. + ${subPoolB.length} rem. (${fmtPow(powB)})${titleCountInSubs?` · ${titleCountInSubs} titulaire${titleCountInSubs>1?'s':''} reporté${titleCountInSubs>1?'s':''} en SUB`:''}`);
   }
   await saveEvTeamsToDB();
   const placedIds=new Set();
@@ -4913,106 +4302,21 @@ async function balanceTeams(){
   }
   if(useFairRotation) renderTddFairResultStats(starters,placedIds);
   if(useFairRotation) await recordTddFairParticipation(placedIds,starterPlacedIds);
+  await recordTddNonRetenus(allTddRegisteredIds,placedIds);
   if(!evAsymMode) toast('⚖️ Équipes sauvegardées !');
   updateEvBanner();renderEventTeams();
 }
 
 function splitBalanced(players){
-  const sorted=[...players].sort((a,b)=>
-    getEffectivePower(b)-getEffectivePower(a)||
-    String(a.name||'').localeCompare(String(b.name||''),'fr',{sensitivity:'base'}));
-  const A=[],B=[];
-  sorted.forEach((player,index)=>{
-    if(index%4===0||index%4===3)A.push(player);
-    else B.push(player);
-  });
-  rebalanceTypeQuotas(A,B);
+  const sorted=[...players].sort((a,b)=>(b.power_t1||0)-(a.power_t1||0));
+  const A=[],B=[];let pA=0,pB=0;
+  sorted.forEach(p=>{if(pA<=pB){A.push(p);pA+=p.power_t1||0;}else{B.push(p);pB+=p.power_t1||0;}});
   return[A,B];
-}
-
-const TEAM_T1_TYPES=['tank','avion','missile','hybride'];
-function typeQuotaPenalty(teamA,teamB){
-  const countsA=Object.fromEntries(TEAM_T1_TYPES.map(type=>[type,0]));
-  const countsB=Object.fromEntries(TEAM_T1_TYPES.map(type=>[type,0]));
-  teamA.forEach(player=>{const type=getT1TypeKey(player);if(type)countsA[type]++;});
-  teamB.forEach(player=>{const type=getT1TypeKey(player);if(type)countsB[type]++;});
-  return TEAM_T1_TYPES.reduce((penalty,type)=>penalty+Math.max(0,Math.abs(countsA[type]-countsB[type])-2),0);
-}
-function typeQuotaWarningHtml(teamA,teamB){
-  if(t1CompositionError)return `<div class="team-type-warning">⚠️ Types T1 indisponibles : ${escapeHtml(t1CompositionError)}</div>`;
-  const countsA=Object.fromEntries(TEAM_T1_TYPES.map(type=>[type,0]));
-  const countsB=Object.fromEntries(TEAM_T1_TYPES.map(type=>[type,0]));
-  teamA.forEach(player=>{const type=getT1TypeKey(player);if(type)countsA[type]++;});
-  teamB.forEach(player=>{const type=getT1TypeKey(player);if(type)countsB[type]++;});
-  const labels={tank:'Tank',avion:'Avion',missile:'Missile',hybride:'Hybride'};
-  const warnings=TEAM_T1_TYPES.filter(type=>Math.abs(countsA[type]-countsB[type])>2)
-    .map(type=>`${labels[type]} : A ${countsA[type]} / B ${countsB[type]}`);
-  return warnings.length?`<div class="team-type-warning">⚠️ Écart de types supérieur à 2 — ${warnings.join(' · ')}</div>`:'';
-}
-function rebalanceTypeQuotas(teamA,teamB,canSwap=()=>true){
-  const maxSwaps=teamA.length*teamB.length;
-  let swaps=0,penalty=typeQuotaPenalty(teamA,teamB);
-  while(penalty>0&&swaps<maxSwaps){
-    let best=null;
-    for(let i=0;i<teamA.length;i++){
-      const playerA=teamA[i],typeA=getT1TypeKey(playerA);
-      if(!typeA)continue;
-      for(let j=0;j<teamB.length;j++){
-        const playerB=teamB[j],typeB=getT1TypeKey(playerB);
-        if(!typeB||typeA===typeB||!canSwap(playerA,playerB))continue;
-        const powerA=Number(playerA.t1_power??playerA.power_t1)||0;
-        const powerB=Number(playerB.t1_power??playerB.power_t1)||0;
-        if(Math.abs(powerA-powerB)>1500000)continue;
-        const nextA=[...teamA],nextB=[...teamB];
-        nextA[i]=playerB;nextB[j]=playerA;
-        const nextPenalty=typeQuotaPenalty(nextA,nextB);
-        if(nextPenalty>=penalty)continue;
-        const scoreGap=Math.abs(getEffectivePower(playerA)-getEffectivePower(playerB));
-        if(!best||nextPenalty<best.penalty||nextPenalty===best.penalty&&scoreGap<best.scoreGap){
-          best={i,j,penalty:nextPenalty,scoreGap};
-        }
-      }
-    }
-    if(!best)break;
-    [teamA[best.i],teamB[best.j]]=[teamB[best.j],teamA[best.i]];
-    penalty=best.penalty;
-    swaps++;
-  }
-  return {swaps,remainingImbalance:penalty};
-}
-function rebalanceEventTeamTypeQuotas(teams,canSwap=()=>true){
-  if(!teams?.A||!teams?.B)return{swaps:0,remainingImbalance:0};
-  const slotsFor=team=>CATEGORIES.flatMap(category=>(team[category.key]||[]).map((player,index)=>({
-    players:team[category.key],index,player,isSub:category.key==='SUB'
-  })));
-  const slotsA=slotsFor(teams.A),slotsB=slotsFor(teams.B);
-  const playersA=slotsA.map(slot=>slot.player),playersB=slotsB.map(slot=>slot.player);
-  const playerRoles=new Map([...slotsA,...slotsB].map(slot=>[String(slot.player.id),slot.isSub]));
-  const result=rebalanceTypeQuotas(playersA,playersB,(playerA,playerB)=>{
-    return playerRoles.get(String(playerA.id))===playerRoles.get(String(playerB.id))&&canSwap(playerA,playerB);
-  });
-  slotsA.forEach((slot,index)=>{slot.players[slot.index]=playersA[index];});
-  slotsB.forEach((slot,index)=>{slot.players[slot.index]=playersB[index];});
-  return result;
-}
-function rebalanceCanyonTeamTypeQuotas(teamA,teamB){
-  const slotsFor=team=>[
-    ...team.starters.map((player,index)=>({players:team.starters,index,player,isSub:false})),
-    ...team.subs.map((player,index)=>({players:team.subs,index,player,isSub:true}))
-  ];
-  const slotsA=slotsFor(teamA),slotsB=slotsFor(teamB);
-  const playersA=slotsA.map(slot=>slot.player),playersB=slotsB.map(slot=>slot.player);
-  const playerRoles=new Map([...slotsA,...slotsB].map(slot=>[String(slot.player.id),slot.isSub]));
-  const result=rebalanceTypeQuotas(playersA,playersB,(playerA,playerB)=>
-    playerRoles.get(String(playerA.id))===playerRoles.get(String(playerB.id)));
-  slotsA.forEach((slot,index)=>{slot.players[slot.index]=playersA[index];});
-  slotsB.forEach((slot,index)=>{slot.players[slot.index]=playersB[index];});
-  return result;
 }
 
 function buildOneTeam(starters,subs,keepSubs=false){
   const team=makeEmptyTeam();const subPool=[...subs];
-  const sorted=[...starters].sort((a,b)=>getEffectivePower(b)-getEffectivePower(a));
+  const sorted=[...starters].sort((a,b)=>(b.power_t1||0)-(a.power_t1||0));
   const starterCats=CATEGORIES.filter(c=>c.key!=='SUB'); // toutes les cats titulaires
   let pool;
   if(evElPriority){
@@ -5038,7 +4342,7 @@ function buildOneTeam(starters,subs,keepSubs=false){
 }
 
 function teamTotalPower(team){if(!team)return 0;return CATEGORIES.flatMap(c=>team[c.key]||[]).reduce((s,p)=>s+(p.power_t1||0),0);}
-function teamTotalEffectivePower(team){if(!team)return 0;return CATEGORIES.flatMap(c=>team[c.key]||[]).reduce((s,p)=>s+getEffectivePower(p),0);}
+function catPower(arr){return arr.reduce((s,p)=>s+(p.power_t1||0),0);}
 
 let evDragSrcData=null;
 function evDragStart(e,team,catKey,idx){
@@ -5048,6 +4352,8 @@ function evDragStart(e,team,catKey,idx){
   e.dataTransfer.setData('text/plain',team+':'+catKey+':'+(player?player.id:0));
   setTimeout(()=>{const el=document.querySelector(`[data-ev-team="${team}"][data-ev-cat="${catKey}"][data-ev-idx="${idx}"]`);if(el)el.classList.add('dragging-team');},0);
 }
+function evDragOver(e){e.preventDefault();document.querySelectorAll('.ev-team-player').forEach(el=>el.classList.remove('drag-over-team'));}
+
 function evDropZoneOver(event,teamKey,catKey){
   event.preventDefault();
   const cat=evTeams&&evTeams[teamKey]?evTeams[teamKey][catKey]:null;
@@ -5090,14 +4396,7 @@ function openTddReplaceMenu(event,teamKey,catKey,idx){
     if(!evTeams[tk])return;
     CATEGORIES.forEach(cat=>(evTeams[tk][cat.key]||[]).forEach(p=>placedIds.add(p.id)));
   });
-  let candidates=participants.filter(p=>!placedIds.has(p.id)&&evRoles[p.id]!=='none');
-  candidates=evFairRotation&&!evAsymMode
-    ? buildTddFairRank(candidates).sort((a,b)=>{
-        const ar=evRoles[a.id]==='starter'?1:0;
-        const br=evRoles[b.id]==='starter'?1:0;
-        return br-ar;
-      })
-    : sortTddPlayers(candidates);
+  const candidates=sortTddPlayers(participants.filter(p=>!placedIds.has(p.id)&&evRoles[p.id]!=='none'));
   if(!candidates.length){toast('Aucun joueur non placé disponible');return;}
 
   const menu=document.createElement('div');
@@ -5110,6 +4409,7 @@ function openTddReplaceMenu(event,teamKey,catKey,idx){
 
   candidates.forEach(p=>{
     const role=evRoles[p.id]==='starter'?'T':'R';
+    const count=Number(tddNonRetenus[p.id])||0;
     const btn=document.createElement('button');
     btn.type='button';
     btn.className='tdd-replace-item';
@@ -5123,6 +4423,7 @@ function openTddReplaceMenu(event,teamKey,catKey,idx){
     infoSpan.className='tdd-replace-info';
     const bits=[];
     if(p.power_t1)bits.push(t1FormatPower(p.power_t1));
+    if(count>0)bits.push(`🔄 ×${count}`);
     infoSpan.textContent=bits.join(' · ');
     btn.append(roleSpan,nameSpan,infoSpan);
     btn.addEventListener('click',async e=>{
@@ -5173,9 +4474,27 @@ async function applyTddReplacement(teamKey,catKey,idx,replacementId){
   // exactement le même slot, et le joueur sorti redevient non placé.
   evTeams[teamKey][catKey][idx]=replacement;
 
+  // Le joueur entrant consomme une rotation : x2 -> x1, x1 disparaît.
+  const replacementCount=Number(tddNonRetenus[replacement.id])||0;
+  if(replacementCount>1)tddNonRetenus[replacement.id]=replacementCount-1;
+  else if(replacementCount===1)delete tddNonRetenus[replacement.id];
+
+  // Le joueur sorti devient à nouveau non placé pour cette semaine.
+  // On lui attribue une rotation à rattraper afin qu'il apparaisse dans
+  // la zone « Non placés » dès qu'il quitte l'équipe.
+  const currentCount=Number(tddNonRetenus[current.id])||0;
+  tddNonRetenus[current.id]=currentCount+1;
+
+  await saveTddNonRetenus();
   await saveEvTeamsToDB();
   renderEventTeams();
+  renderTddNonRetenus();
   toast(`${replacement.name} remplace ${current.name} dans ${catKey} — Équipe ${teamKey}`);
+}
+
+function replaceTeamPlayer(teamKey,catKey,idx){
+  const button=event?.currentTarget;
+  if(button)openTddReplaceMenu(event,teamKey,catKey,idx);
 }
 
 async function switchTeam(fromTeam,fromCat,idx){
@@ -5192,17 +4511,13 @@ function renderEventTeams(){
   const result=document.getElementById('evTeamsResult');
   updateEvBanner();
   if(!evTeams){result.innerHTML='';return;}
-  const powA=teamTotalEffectivePower(evTeams.A);const powB=evTeams.B?teamTotalEffectivePower(evTeams.B):0;
-  const playersForTeam=teamKey=>CATEGORIES.flatMap(category=>evTeams[teamKey]?.[category.key]||[]);
-  const typeWarning=evTeams.B
-    ?typeQuotaWarningHtml(playersForTeam('A'),playersForTeam('B'))
-    :t1CompositionError?typeQuotaWarningHtml([],[]):'';
+  const powA=teamTotalPower(evTeams.A);const powB=evTeams.B?teamTotalPower(evTeams.B):0;
   let balanceHtml='';
   if(evTeams.B){
     const diff=Math.abs(powA-powB);const total=powA+powB;const pct=total>0?Math.round(diff/total*100):0;
     const cls=pct<=5?'ev-balance-pill':'ev-balance-pill warn';
     const icon=pct<=5?'✓ Très équilibré':pct<=10?'~ Bon équilibre':'⚠️ Déséquilibré';
-    balanceHtml=`<div class="ev-balance-info" style="margin-bottom:14px"><span class="${cls}">Écart du score réel A/B : ${diff.toLocaleString('fr-FR')} pts (${pct}%) — ${icon}</span></div>`;
+    balanceHtml=`<div class="ev-balance-info" style="margin-bottom:14px"><span class="${cls}">Écart A/B : ${diff.toLocaleString('fr-FR')} pts (${pct}%) — ${icon}</span></div>`;
   }
   const renderTeam=(teamKey,label,headerCls)=>{
     const team=evTeams[teamKey];if(!team)return'';
@@ -5215,14 +4530,14 @@ function renderEventTeams(){
         const replaceBtn=`<button onclick="openTddReplaceMenu(event,'${teamKey}','${cat.key}',${i})" title="Remplacer par un joueur non placé" style="background:rgba(124,159,255,0.07);border:1px solid rgba(124,159,255,0.2);border-radius:6px;cursor:pointer;font-size:11px;padding:2px 7px;color:var(--blue);white-space:nowrap;flex-shrink:0;transition:all .15s">⇄ Remplacer</button>`;
         const roleLetter=evRoles[p.id]==='starter'?'T':evRoles[p.id]==='sub'?'R':'';
         const roleBadge=roleLetter?`<span style="font-size:11px;font-weight:800;color:var(--text2);min-width:14px;text-align:center" title="${roleLetter==='T'?'Titulaire':'Remplaçant'}">${roleLetter}</span>`:'';
-        return `<div class="ev-team-player" data-ev-team="${teamKey}" data-ev-cat="${cat.key}" data-ev-idx="${i}" draggable="true" ondragstart="evDragStart(event,'${teamKey}','${cat.key}',${i})" ondragend="evDragEnd()"><span class="ev-pnum">${i+1}</span>${roleBadge}<span class="ev-pname">${escapeHtml(p.name)}</span>${teamTypeBadge(p)}${replaceBtn}${switchBtn}<span style="font-size:11px;color:var(--text4);cursor:grab;flex-shrink:0">⠿</span></div>`;
+        return `<div class="ev-team-player" data-ev-team="${teamKey}" data-ev-cat="${cat.key}" data-ev-idx="${i}" draggable="true" ondragstart="evDragStart(event,'${teamKey}','${cat.key}',${i})" ondragend="evDragEnd()"><span class="ev-pnum">${i+1}</span>${roleBadge}<span class="ev-pname">${p.name}</span>${replaceBtn}${switchBtn}<span style="font-size:11px;color:var(--text4);cursor:grab;flex-shrink:0">⠿</span></div>`;
       }).join('');
       const isFull=players.length>=cat.size;const dropZone=`<div class="ev-cat-drop" ondragover="evDropZoneOver(event,'${teamKey}','${cat.key}')" ondragleave="evDropZoneLeave(event)" ondrop="evDropOnCatUniversal(event,'${teamKey}','${cat.key}')" style="min-height:${isEmpty?'38px':'4px'};display:flex;align-items:center;justify-content:center;border-radius:6px;transition:all .15s">${isEmpty?`<span style="font-size:11px;color:var(--text3);font-style:italic">${isFull?'Plein':'Déposer ici'}</span>`:''}</div>`;
       return `<div class="ev-cat-block" style="border-left:2px solid ${cat.color}"><div class="ev-cat-header" style="background:${cat.bg}"><span class="ev-cat-title" style="color:${cat.color}">${cat.label}</span><span class="ev-cat-info">${players.length}/${cat.size}</span></div>${playersHtml}${dropZone}</div>`;
     }).join('');
     return `<div class="ev-team-card"><div class="ev-team-header ${headerCls}"><span class="ev-team-title ${headerCls}">⚔️ ${label} — ${tddSlotLabel(tddTeamSlots[teamKey])}</span><span class="ev-team-power">${stCount} tit. · ${subCount} rempl.</span></div><div class="ev-team-body">${catsHtml}</div><button class="ev-copy-btn" onclick="evCopyTeam('${teamKey}','${label}')">📋 Copier ${label}</button></div>`;
   };
-  result.innerHTML=`${balanceHtml}${typeWarning}<div class="ev-teams-grid${evTeams.B?' two':''}">
+  result.innerHTML=`${balanceHtml}<div class="ev-teams-grid${evTeams.B?' two':''}">
     ${renderTeam('A','Équipe A','teamA')}
     ${evTeams.B?renderTeam('B','Équipe B','teamB'):''}
   </div>`;
@@ -5279,16 +4594,18 @@ async function startApp(){
 window.addEventListener('load',()=>{
   window._appReady=true;
   loadTheme();
-  if(typeof supabase!=='undefined'){
-    window._supabaseReady=true;
-    startApp();
-  }else{
-    document.getElementById('loginError').textContent='Erreur : Supabase non chargé.';
-  }
+  setTimeout(()=>{
+    if(typeof supabase!=='undefined'){
+      window._supabaseReady=true;
+      startApp();
+    }else{
+      document.getElementById('loginError').textContent='Erreur : Supabase non chargé.';
+    }
+  },500);
 });
 
 // ══ RECENSEMENT PUISSANCE T1 ══
-let t1Players=[],t1Entries={},t1Busy=false,t1CurrentRound=null;
+let t1Players=[],t1Entries={},t1Busy=false,t1OcrLoaded=false,t1CurrentRound=null;
 const t1Url=()=>window.location.href.split('?')[0]+'?poll=t1';
 function t1Status(message,isError=false){const el=document.getElementById('t1Status');if(el){el.textContent=message;el.style.color=isError?'var(--red)':'var(--text2)';}}
 function checkT1PollMode(){
@@ -5341,164 +4658,138 @@ function t1FormatPower(n){return (Number(n)/1e6).toFixed(2)+'M';}
 function t1PowerChanged(){
   const input=document.getElementById('t1Power');
   const btn=document.getElementById('t1SubmitBtn');
-  const powerValid=!!t1ParsePower(input.value);
-  const valid=powerValid
-    &&!!document.getElementById('t1Team1Type').value
-    &&!!t1ParsePower(document.getElementById('t1Team2Power').value)
-    &&!!document.getElementById('t1Team2Type').value;
-  if(btn)btn.disabled=t1Busy||!valid;
-  input.setAttribute('aria-invalid',input.value&&!powerValid?'true':'false');
+  const file=document.getElementById('t1Image').files[0];
+  const valid=!!t1ParsePower(input.value);
+  if(btn)btn.disabled=t1Busy||!file||!valid;
+  input.setAttribute('aria-invalid',input.value&&!valid?'true':'false');
+}
+function t1ImageChanged(){
+  const file=document.getElementById('t1Image').files[0];const img=document.getElementById('t1Preview');
+  if(!file){img.style.display='none';document.getElementById('t1Power').value='';document.getElementById('t1SubmitBtn').disabled=true;t1Status('');return;}
+  if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>5*1024*1024){
+    document.getElementById('t1Image').value='';img.style.display='none';t1Status('Image JPG, PNG ou WEBP de 5 Mo maximum.',true);return;
+  }
+  img.src=URL.createObjectURL(file);img.style.display='block';img.onload=()=>URL.revokeObjectURL(img.src);
+  document.getElementById('t1Power').value='';
+  document.getElementById('t1SubmitBtn').disabled=true;
+  t1Recognize(file);
+}
+async function t1Recognize(selectedFile){
+  const status=(message,error=false)=>t1Status(message,error);
+  const input=document.getElementById('t1Image');
+  const file=selectedFile || (input && input.files && input.files[0]);
+  if(!file){status('Choisis une capture d’écran.',true);return;}
+  const submitBtn=document.getElementById('t1SubmitBtn');
+  if(submitBtn)submitBtn.disabled=true;
+  const timeout=(promise,ms,label)=>Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error(label)),ms))]);
+  try{
+    status('Chargement de la reconnaissance… La première utilisation peut prendre 20 à 40 secondes.');
+    if(!window.Tesseract){
+      await timeout(new Promise((resolve,reject)=>{
+        const sc=document.createElement('script');
+        sc.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+        sc.onload=resolve;
+        sc.onerror=()=>reject(new Error('Impossible de charger la bibliothèque OCR (connexion ou bloqueur de scripts).'));
+        document.head.appendChild(sc);
+      }),20000,'Chargement OCR trop long. Vérifie ta connexion Internet.');
+    }
+    if(!window.Tesseract)throw new Error('Bibliothèque OCR non chargée.');
+    status('Préparation de la capture…');
+    const bmp=await timeout(createImageBitmap(file),12000,'Impossible de décoder cette image. Essaie un fichier JPG ou PNG.');
+    // Plusieurs cadrages : les captures peuvent varier selon l'appareil.
+    const crops=[
+      [.28,0,.46,.105],
+      [.18,0,.65,.16],
+      [0,0,1,.20]
+    ];
+    const found=[];const readings=[];
+    for(let k=0;k<crops.length;k++){
+      const [rx,ry,rw,rh]=crops[k];
+      const sx=Math.round(bmp.width*rx),sy=Math.round(bmp.height*ry);
+      const sw=Math.max(1,Math.round(bmp.width*rw)),sh=Math.max(1,Math.round(bmp.height*rh));
+      const canvas=document.createElement('canvas');
+      const scale=Math.min(4,1800/sw);
+      canvas.width=Math.round(sw*scale);canvas.height=Math.round(sh*scale);
+      const ctx=canvas.getContext('2d',{willReadFrequently:true});
+      ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+      ctx.drawImage(bmp,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
+      const variants=[canvas];
+      const bw=document.createElement('canvas');bw.width=canvas.width;bw.height=canvas.height;
+      const bc=bw.getContext('2d',{willReadFrequently:true});bc.drawImage(canvas,0,0);
+      const pixels=bc.getImageData(0,0,bw.width,bw.height);
+      for(let j=0;j<pixels.data.length;j+=4){
+        const r=pixels.data[j],g=pixels.data[j+1],b=pixels.data[j+2];
+        const yellow=r>120&&g>95&&r>b*1.25&&g>b*1.2;
+        const v=yellow?0:255;
+        pixels.data[j]=pixels.data[j+1]=pixels.data[j+2]=v;
+      }
+      bc.putImageData(pixels,0,0);variants.push(bw);
+      for(let v=0;v<variants.length;v++){
+        status('Analyse de la puissance : essai '+(k*2+v+1)+'/6…');
+        const result=await timeout(window.Tesseract.recognize(variants[v],'eng',{
+          tessedit_pageseg_mode:6,
+          tessedit_char_whitelist:'0123456789.,Mm '
+        }),45000,'Reconnaissance trop longue.');
+        const txt=(result.data.text||'').toUpperCase().replace(/,/g,'.');
+        readings.push(txt.trim().replace(/\s+/g,' '));
+        // Le M est parfois lu comme absent, mais le séparateur décimal doit être présent.
+        for(const m of txt.matchAll(/(?:^|[^\d])(\d{1,3})\s*[.]\s*(\d{1,3})\s*M?(?=$|[^\d])/g)){
+          const raw=m[1]+'.'+m[2]+'M';
+          if(t1ParsePower(raw))found.push(raw);
+        }
+      }
+      if(found.length)break;
+    }
+    if(bmp.close)bmp.close();
+    const unique=[...new Set(found)];
+    if(unique.length!==1){
+      const debug=readings.filter(Boolean).slice(0,4).join(' | ').slice(0,130);
+      throw new Error((unique.length?'Lectures différentes : '+unique.join(' / '):'Puissance non reconnue')+(debug?' (texte lu : '+debug+')':''));
+    }
+    const value=t1ParsePower(unique[0]);
+    if(input.files[0]!==file)return; // Ignorer une ancienne lecture si une autre capture a été choisie.
+    document.getElementById('t1Power').value=t1FormatPower(value);
+    t1PowerChanged();
+    status('Puissance détectée : '+t1FormatPower(value)+'. Vérifie avant de valider.');
+  }catch(e){
+    console.error('Lecture T1 :',e);
+    if(input.files[0]!==file)return;
+    status((e && e.message?e.message:'Erreur lors de la lecture.')+' Tu peux saisir la puissance dans la case, en conservant la capture.',true);
+  }finally{
+    if(input.files[0]===file)t1PowerChanged();
+  }
 }
 async function t1Submit(){
   if(t1Busy)return;
   const select=document.getElementById('t1Player'),id=Number(select.value);
   const p=t1Players.find(x=>x.id===id),power=t1ParsePower(document.getElementById('t1Power').value);
-  const team1Type=document.getElementById('t1Team1Type').value;
-  const team2Power=t1ParsePower(document.getElementById('t1Team2Power').value);
-  const team2Type=document.getElementById('t1Team2Type').value;
   if(!t1CurrentRound){t1Status('Aucun recensement T1 ouvert.',true);return;}
   if(!p){t1Status('Sélectionne ton pseudo.',true);return;}
   if(!power){t1Status('Vérifie la puissance : indique par exemple 18.31 ou 18.31M.',true);return;}
-  if(!['tank','avion','missile','hybride'].includes(team1Type)){t1Status('Choisis le type de ton équipe 1.',true);return;}
-  if(!team2Power){t1Status('Vérifie la puissance de ton équipe 2.',true);return;}
-  if(!['tank','avion','missile','hybride'].includes(team2Type)){t1Status('Choisis le type de ton équipe 2.',true);return;}
-  if(!confirm(p.name+' : confirmer équipe 1 ('+t1FormatPower(power)+', '+t1TeamTypeLabel(team1Type)+') et équipe 2 ('+t1FormatPower(team2Power)+', '+t1TeamTypeLabel(team2Type)+') ? Tu ne pourras plus modifier cette déclaration.'))return;
+  const file=document.getElementById('t1Image').files[0];
+  if(!file){t1Status('Ajoute une capture d’écran pour déclarer ta puissance.',true);return;}
+  if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>5*1024*1024){t1Status('Capture invalide (5 Mo max).',true);return;}
+  if(!confirm(p.name+' : confirmer ta puissance T1 de '+t1FormatPower(power)+' ? Tu ne pourras plus la modifier.'))return;
   t1Busy=true;document.getElementById('t1SubmitBtn').disabled=true;
+  let imagePath=null;
   try{
-    t1Status('Enregistrement des puissances…');
-    const {error}=await sb.rpc('t1_submit_once_v2',{
-      p_participant_id:id,p_power:power,p_image_path:null,p_round_id:t1CurrentRound.id,
-      p_team1_type:team1Type,p_team2_power:team2Power,p_team2_type:team2Type
-    });
+    if(file){
+      t1Status('Envoi de la capture…');
+      imagePath=crypto.randomUUID()+'.'+({ 'image/png':'png','image/jpeg':'jpg','image/webp':'webp'}[file.type]);
+      const up=await sb.storage.from('t1-captures').upload(imagePath,file,{contentType:file.type,upsert:false});
+      if(up.error)throw up.error;
+    }
+    t1Status('Enregistrement de la puissance…');
+    const {error}=await sb.rpc('t1_submit_once',{p_participant_id:id,p_power:power,p_image_path:imagePath,p_round_id:t1CurrentRound.id});
     if(error)throw error;
     t1Entries[id]=true;localStorage.setItem(participationKey('t1',t1CurrentRound.id),String(id));document.getElementById('t1Form').style.display='none';
     document.getElementById('t1Success').style.display='block';
-    document.getElementById('t1SuccessText').textContent=p.name+' — équipe 1 : '+t1FormatPower(power)+' ('+t1TeamTypeLabel(team1Type)+'), équipe 2 : '+t1FormatPower(team2Power)+' ('+t1TeamTypeLabel(team2Type)+') enregistrées.';
+    document.getElementById('t1SuccessText').textContent=p.name+' — '+t1FormatPower(power)+' enregistrés.';
   }catch(e){
+    // Une capture orpheline peut être nettoyée ultérieurement par le staff.
     t1Status(e.code==='23505'?'Ce pseudo a déjà transmis sa puissance.':('Envoi impossible : '+e.message),true);
     await refreshT1Select();
-  }finally{t1Busy=false;t1PowerChanged();}
-}
-function t1TeamTypeLabel(type){
-  return ({tank:'Tank',avion:'Avion',missile:'Missile',hybride:'Hybride',missile_hybride:'Missile hybride'})[type]||'—';
-}
-function t1TeamTypeIcon(type){
-  const icons={
-    tank:{symbol:'🛡️',label:'Tank',className:'tank'},
-    avion:{symbol:'✈️',label:'Avion',className:'avion'},
-    missile:{symbol:'🚀',label:'Missile',className:'missile'},
-    hybride:{symbol:'🔀',label:'Hybride',className:'hybride'},
-    missile_hybride:{symbol:'🔀',label:'Missile hybride',className:'hybride'}
-  };
-  const entry=icons[type];
-  if(!entry)return document.createTextNode('—');
-  const icon=document.createElement('span');
-  icon.className='t1-type-icon '+entry.className;
-  icon.textContent=entry.symbol;
-  icon.title=entry.label;
-  icon.setAttribute('role','img');
-  icon.setAttribute('aria-label',entry.label);
-  return icon;
-}
-async function refreshT1PowerRoster(){
-  const roundLabel=document.getElementById('t1PowerRosterRound');
-  const roster=document.getElementById('t1PowerRoster');
-  if(!roundLabel||!roster)return;
-  roster.textContent='Chargement…';
-  if(!sb){roster.textContent='Connexion à la base de données indisponible.';return;}
-  try{
-    const {data:rounds,error:roundError}=await sb.from('t1_rounds')
-      .select('id,label,status,opened_at').order('opened_at',{ascending:false}).limit(1);
-    if(roundError)throw roundError;
-    const round=rounds?.[0];
-    roundLabel.textContent=round
-      ?(round.status==='open'?'🟢 Recensement en cours — ':'🔒 Dernier recensement — ')+round.label
-      :'Aucun recensement T1 enregistré ; puissances déjà renseignées affichées ci-dessous.';
-    let submissions=[];
-    if(round){
-      const {data,error}=await sb.from('t1_submissions')
-        .select('participant_id,power,team1_type,team2_power,team2_type').eq('round_id',round.id);
-      if(error)throw error;
-      submissions=data||[];
-    }
-    const submissionsByPlayer=new Map(submissions.map(entry=>[Number(entry.participant_id),entry]));
-    const entries=participants.map(player=>({
-      player,
-      submission:submissionsByPlayer.get(Number(player.id)),
-      power:Number(player.power_t1)||Number(submissionsByPlayer.get(Number(player.id))?.power)||0
-    })).sort((a,b)=>b.power-a.power||a.player.name.localeCompare(b.player.name,'fr',{sensitivity:'base'}));
-    if(!entries.length){
-      roster.textContent='Aucun joueur enregistré.';
-      return;
-    }
-    const table=document.createElement('table');
-    table.className='t1-power-table';
-    const head=document.createElement('thead');
-    const headerRow=document.createElement('tr');
-    ['Joueur','Puissance équipe 1','Type équipe 1','Puissance équipe 2','Type équipe 2'].forEach(label=>{
-      const th=document.createElement('th');th.textContent=label;headerRow.appendChild(th);
-    });
-    head.appendChild(headerRow);
-    const body=document.createElement('tbody');
-    entries.forEach(({player,submission,power})=>{
-      const row=document.createElement('tr');
-      const name=document.createElement('td');name.textContent=player.name;row.appendChild(name);
-      const powerCell=document.createElement('td');powerCell.className='t1-power-current';
-      const powerLabel=document.createElement('span');powerLabel.textContent=power?t1FormatPower(power):'—';powerCell.appendChild(powerLabel);
-      if(isAdminOrStaff()){
-        const editButton=document.createElement('button');editButton.type='button';editButton.className='btn';
-        editButton.textContent='✏️';editButton.title='Corriger la puissance T1 de '+player.name;
-        editButton.setAttribute('aria-label',editButton.title);
-        editButton.onclick=()=>correctT1RosterPower(player.id);
-        powerCell.appendChild(editButton);
-      }
-      row.appendChild(powerCell);
-      const team1TypeCell=document.createElement('td');team1TypeCell.className='t1-type-cell';
-      team1TypeCell.appendChild(t1TeamTypeIcon(submission?.team1_type));row.appendChild(team1TypeCell);
-      const team2PowerCell=document.createElement('td');team2PowerCell.textContent=submission?.team2_power?t1FormatPower(submission.team2_power):'—';
-      row.appendChild(team2PowerCell);
-      const team2TypeCell=document.createElement('td');team2TypeCell.className='t1-type-cell';
-      team2TypeCell.appendChild(t1TeamTypeIcon(submission?.team2_type));row.appendChild(team2TypeCell);
-      body.appendChild(row);
-    });
-    table.append(head,body);
-    roster.replaceChildren(table);
-  }catch(error){
-    roundLabel.textContent='';
-    roster.textContent='Chargement des puissances impossible : '+error.message;
-  }
-}
-async function correctT1RosterPower(participantId){
-  if(!isAdminOrStaff())return;
-  const player=participants.find(entry=>Number(entry.id)===Number(participantId));
-  if(!player)return;
-  const existing=player.power_t1?(Number(player.power_t1)/1e6).toFixed(2):'';
-  const raw=prompt('Puissance T1 en millions pour '+player.name+' (ex. 51.00) :',existing);
-  if(raw===null)return;
-  const cleaned=raw.trim();
-  const power=cleaned?t1ParsePower(/[a-z]/i.test(cleaned)?cleaned:cleaned+'M'):null;
-  if(!power){alert('Puissance invalide : indique par exemple 51.00 (en millions).');return;}
-  if(Number(player.power_t1)===power)return;
-  if(!sb){alert('Connexion Supabase indisponible.');return;}
-  try{
-    const {data,error}=await sb.from('participants').update({power_t1:power})
-      .eq('id',player.id).select('id,power_t1').maybeSingle();
-    if(error)throw error;
-    if(!data)throw new Error('La base n’a modifié aucune ligne (autorisations RLS possibles).');
-    const {data:verified,error:readError}=await sb.from('participants').select('power_t1')
-      .eq('id',player.id).maybeSingle();
-    if(readError)throw readError;
-    if(!verified||Math.abs(Number(verified.power_t1)-power)>0.5){
-      throw new Error('La vérification après enregistrement a échoué.');
-    }
-    player.power_t1=Number(verified.power_t1);
-    await refreshT1PowerRoster();
-    if(typeof renderStats==='function')renderStats();
-    toast('⚡ Puissance enregistrée : '+t1FormatPower(player.power_t1));
-  }catch(error){
-    console.error('Erreur correction puissance T1',error);
-    alert('Impossible d’enregistrer la puissance de '+player.name+' : '+(error.message||error));
-  }
+  }finally{t1Busy=false;document.getElementById('t1SubmitBtn').disabled=false;}
 }
 // Nombre de déclarations pour le recensement T1 actuellement ouvert.
 let t1CounterRequestInFlight=false;
@@ -5518,11 +4809,11 @@ async function refreshT1ResponseCounter(){
   finally{t1CounterRequestInFlight=false;}
 }
 // Le compteur se rafraîchit même lorsque la publication Realtime n'est pas activée.
-setInterval(()=>{if(currentUser&&document.visibilityState!=='hidden')refreshT1ResponseCounter();},15000);
-async function refreshT1PollPanel(){
+setInterval(()=>{if(currentUser)refreshT1ResponseCounter();},15000);
+async function openT1StaffModal(){
+  const modal=document.getElementById('t1StaffModal');modal.style.display='flex';
   document.getElementById('t1ShareLink').value=t1Url();
   if(!isAdminOrStaff()){document.getElementById('t1StaffList').textContent='Seul le staff peut consulter et corriger les déclarations.';return;}
-  if(!sb)return;
   await loadT1Staff();
   await refreshT1ResponseCounter();
 }
@@ -5584,6 +4875,7 @@ async function t1StaffCloseRound(){
   if(error)throw error;toast('Recensement T1 clôturé.');await loadT1Staff();
  }catch(e){alert('Impossible de clôturer : '+e.message);}
 }
+function t1SafeText(v){return String(v??'');}
 async function loadT1History(){
  const el=document.getElementById('t1HistoryStats');if(!el)return;el.textContent='Chargement de l’historique T1…';
  const [r,v,p]=await Promise.all([sb.from('t1_rounds').select('id,label,opened_at,status').order('opened_at'),sb.from('t1_submissions').select('round_id,participant_id,power'),sb.from('participants').select('id,name').order('name')]);
@@ -5685,46 +4977,6 @@ Object.assign(pollTranslations, {"— Sélectionne ton pseudo —": "— Select 
 Object.assign(pollTranslationsEs, {"— Sélectionne ton pseudo —": "— Selecciona tu nombre de jugador —", "Prends une capture de l’écran de formation de ton équipe T1, avec ": "Haz una captura de la formación de tu equipo T1, con ", "la puissance totale bien visible en haut": "la potencia total claramente visible arriba", " (ici : ": " (aquí: ", "). Voici un exemple :": "). Aquí tienes un ejemplo:", "Sondage en cours — ": "Encuesta en curso — ", "Sondage clos": "Encuesta cerrada", "Ce sondage est clôturé. Reviens à la prochaine session.": "Esta encuesta está cerrada. Vuelve en la próxima sesión.", "Aucun recensement ouvert. Reviens à la prochaine session.": "No hay ningún censo abierto. Vuelve en la próxima sesión."});
 Object.assign(pollTranslationsDe, {"— Sélectionne ton pseudo —": "— Wähle deinen Spielernamen —", "Prends une capture de l’écran de formation de ton équipe T1, avec ": "Mache einen Screenshot deiner T1-Teamaufstellung, auf dem ", "la puissance totale bien visible en haut": "die Gesamtstärke oben deutlich sichtbar ist", " (ici : ": " (hier: ", "). Voici un exemple :": "). Hier ist ein Beispiel:", "Sondage en cours — ": "Umfrage läuft — ", "Sondage clos": "Umfrage geschlossen", "Ce sondage est clôturé. Reviens à la prochaine session.": "Diese Umfrage ist geschlossen. Komm zur nächsten Runde zurück.", "Aucun recensement ouvert. Reviens à la prochaine session.": "Keine Erfassung geöffnet. Komm zur nächsten Runde zurück."});
 Object.assign(pollTranslationsIt, {"— Sélectionne ton pseudo —": "— Seleziona il tuo nome giocatore —", "Prends une capture de l’écran de formation de ton équipe T1, avec ": "Fai uno screenshot della formazione della tua squadra T1, con ", "la puissance totale bien visible en haut": "la potenza totale ben visibile in alto", " (ici : ": " (qui: ", "). Voici un exemple :": "). Ecco un esempio:", "Sondage en cours — ": "Sondaggio in corso — ", "Sondage clos": "Sondaggio chiuso", "Ce sondage est clôturé. Reviens à la prochaine session.": "Questo sondaggio è chiuso. Torna alla prossima sessione.", "Aucun recensement ouvert. Reviens à la prochaine session.": "Nessun censimento aperto. Torna alla prossima sessione."});
-const t1FormTranslations={
- en:{'Recensement des puissances':'Power survey','Pour déclarer tes puissances, ajoute une capture d’écran de ton équipe 1. Les puissances seront reconnues automatiquement. Une seule déclaration par joueur et par recensement.':'To report your powers, upload a screenshot of team 1. Power will be detected automatically. One submission per player per survey.','⚡ Puissance de l’équipe 1 détectée (modifiable)':'⚡ Detected team 1 power (editable)','✓ Valider mes puissances':'✓ Submit my powers','Puissances enregistrées !':'Powers saved!','Type de l’équipe 1':'Team 1 type','Type de l’équipe 2':'Team 2 type','Puissance de l’équipe 2':'Team 2 power','— Choisir un type —':'— Choose a type —','Tank':'Tank','Avion':'Aircraft','Missile':'Missile','Hybride':'Hybrid','Missile hybride':'Hybrid missile','Choisis le type de ton équipe 1.':'Choose your team 1 type.','Vérifie la puissance de ton équipe 2.':'Check your team 2 power.','Choisis le type de ton équipe 2.':'Choose your team 2 type.'},
- es:{'Recensement des puissances':'Censo de potencias','Pour déclarer tes puissances, ajoute une capture d’écran de ton équipe 1. Les puissances seront reconnues automatiquement. Une seule déclaration par joueur et par recensement.':'Para declarar tus potencias, sube una captura de pantalla de tu equipo 1. Las potencias se detectarán automáticamente. Una declaración por jugador y por censo.','⚡ Puissance de l’équipe 1 détectée (modifiable)':'⚡ Potencia del equipo 1 detectada (editable)','✓ Valider mes puissances':'✓ Enviar mis potencias','Puissances enregistrées !':'¡Potencias guardadas!','Type de l’équipe 1':'Tipo del equipo 1','Type de l’équipe 2':'Tipo del equipo 2','Puissance de l’équipe 2':'Potencia del equipo 2','— Choisir un type —':'— Elige un tipo —','Tank':'Tanque','Avion':'Avión','Missile':'Misil','Hybride':'Híbrido','Missile hybride':'Misil híbrido','Choisis le type de ton équipe 1.':'Elige el tipo de tu equipo 1.','Vérifie la puissance de ton équipe 2.':'Comprueba la potencia de tu equipo 2.','Choisis le type de ton équipe 2.':'Elige el tipo de tu equipo 2.'},
- de:{'Recensement des puissances':'Krafterfassung','Pour déclarer tes puissances, ajoute une capture d’écran de ton équipe 1. Les puissances seront reconnues automatiquement. Une seule déclaration par joueur et par recensement.':'Um deine Kräfte zu melden, lade einen Screenshot von Team 1 hoch. Die Kräfte werden automatisch erkannt. Eine Meldung pro Spieler und Erfassung.','⚡ Puissance de l’équipe 1 détectée (modifiable)':'⚡ Erkannte Kraft von Team 1 (bearbeitbar)','✓ Valider mes puissances':'✓ Meine Kräfte absenden','Puissances enregistrées !':'Kräfte gespeichert!','Type de l’équipe 1':'Typ von Team 1','Type de l’équipe 2':'Typ von Team 2','Puissance de l’équipe 2':'Kraft von Team 2','— Choisir un type —':'— Typ auswählen —','Tank':'Panzer','Avion':'Flugzeug','Missile':'Rakete','Hybride':'Hybrid','Missile hybride':'Hybridrakete','Choisis le type de ton équipe 1.':'Wähle den Typ deines Teams 1.','Vérifie la puissance de ton équipe 2.':'Prüfe die Kraft deines Teams 2.','Choisis le type de ton équipe 2.':'Wähle den Typ deines Teams 2.'},
- it:{'Recensement des puissances':'Censimento potenze','Pour déclarer tes puissances, ajoute une capture d’écran de ton équipe 1. Les puissances seront reconnues automatiquement. Une seule déclaration par joueur et par recensement.':'Per dichiarare le tue potenze, carica uno screenshot della squadra 1. Le potenze verranno rilevate automaticamente. Una dichiarazione per giocatore e censimento.','⚡ Puissance de l’équipe 1 détectée (modifiable)':'⚡ Potenza della squadra 1 rilevata (modificabile)','✓ Valider mes puissances':'✓ Invia le mie potenze','Puissances enregistrées !':'Potenze salvate!','Type de l’équipe 1':'Tipo della squadra 1','Type de l’équipe 2':'Tipo della squadra 2','Puissance de l’équipe 2':'Potenza della squadra 2','— Choisir un type —':'— Scegli un tipo —','Tank':'Carro armato','Avion':'Aereo','Missile':'Missile','Hybride':'Ibrido','Missile hybride':'Missile ibrido','Choisis le type de ton équipe 1.':'Scegli il tipo della tua squadra 1.','Vérifie la puissance de ton équipe 2.':'Controlla la potenza della tua squadra 2.','Choisis le type de ton équipe 2.':'Scegli il tipo della tua squadra 2.'}
-};
-Object.assign(pollTranslations,t1FormTranslations.en);
-Object.assign(pollTranslationsEs,t1FormTranslations.es);
-Object.assign(pollTranslationsDe,t1FormTranslations.de);
-Object.assign(pollTranslationsIt,t1FormTranslations.it);
-const t1NoImageTranslations={
- en:{
-  'Pour déclarer tes puissances, indique la puissance et le type de chacune de tes deux équipes. Une déclaration par joueur et par recensement.':'To report your powers, enter the power and type of both teams. One submission per player per survey.',
-  '⚡ Puissance de l’équipe 1':'⚡ Team 1 power',
-  'Saisis la puissance de ton équipe 1 en millions (ex. 18.31M). Tu peux utiliser un point ou une virgule.':'Enter your team 1 power in millions (e.g. 18.31M). You can use a dot or comma.',
-  'Enregistrement des puissances…':'Saving powers…'
- },
- es:{
-  'Pour déclarer tes puissances, indique la puissance et le type de chacune de tes deux équipes. Une déclaration par joueur et par recensement.':'Para declarar tus potencias, indica la potencia y el tipo de tus dos equipos. Un envío por jugador y censo.',
-  '⚡ Puissance de l’équipe 1':'⚡ Potencia del equipo 1',
-  'Saisis la puissance de ton équipe 1 en millions (ex. 18.31M). Tu peux utiliser un point ou une virgule.':'Introduce la potencia de tu equipo 1 en millones (ej. 18.31M). Puedes usar punto o coma.',
-  'Enregistrement des puissances…':'Guardando potencias…'
- },
- de:{
-  'Pour déclarer tes puissances, indique la puissance et le type de chacune de tes deux équipes. Une déclaration par joueur et par recensement.':'Gib die Stärke und den Typ beider Teams an. Eine Meldung pro Spieler und Erfassung.',
-  '⚡ Puissance de l’équipe 1':'⚡ Kraft von Team 1',
-  'Saisis la puissance de ton équipe 1 en millions (ex. 18.31M). Tu peux utiliser un point ou une virgule.':'Gib die Kraft von Team 1 in Millionen ein (z. B. 18,31M). Punkt oder Komma ist möglich.',
-  'Enregistrement des puissances…':'Kräfte werden gespeichert…'
- },
- it:{
-  'Pour déclarer tes puissances, indique la puissance et le type de chacune de tes deux équipes. Une déclaration par joueur et par recensement.':'Per dichiarare le tue potenze, indica potenza e tipo di entrambe le squadre. Un invio per giocatore e censimento.',
-  '⚡ Puissance de l’équipe 1':'⚡ Potenza della squadra 1',
-  'Saisis la puissance de ton équipe 1 en millions (ex. 18.31M). Tu peux utiliser un point ou une virgule.':'Inserisci la potenza della squadra 1 in milioni (es. 18.31M). Puoi usare il punto o la virgola.',
-  'Enregistrement des puissances…':'Salvataggio potenze…'
- }
-};
-Object.assign(pollTranslations,t1NoImageTranslations.en);
-Object.assign(pollTranslationsEs,t1NoImageTranslations.es);
-Object.assign(pollTranslationsDe,t1NoImageTranslations.de);
-Object.assign(pollTranslationsIt,t1NoImageTranslations.it);
 const pollOriginalText=new WeakMap(),pollOriginalAttrs=new WeakMap();
 const pollRoots=()=>['t1PollOverlay','canyonPollOverlay','pollOverlay'].map(id=>document.getElementById(id)).filter(Boolean);
 function translatePollString(source){
@@ -5776,12 +5028,6 @@ function applyPollTranslations(){
    const original=pollOriginalText.get(node),translated=translatePollString(original);
    if(node.nodeValue!==translated)node.nodeValue=translated;
   }
-  root.querySelectorAll('#t1Team1Type option,#t1Team2Type option').forEach(option=>{
-   const textNode=option.firstChild;if(!textNode)return;
-   if(!pollOriginalText.has(textNode))pollOriginalText.set(textNode,textNode.nodeValue);
-   const translated=translatePollString(pollOriginalText.get(textNode));
-   if(textNode.nodeValue!==translated)textNode.nodeValue=translated;
-  });
   root.querySelectorAll('[placeholder],[alt],[title],[aria-label]').forEach(el=>{
    if(!pollOriginalAttrs.has(el))pollOriginalAttrs.set(el,{});
    const originals=pollOriginalAttrs.get(el);
@@ -5828,7 +5074,7 @@ function rwApplyRemote(response,force=false){if(!response||!response.data)return
 async function rwFetch(force=false){if(!rwAllowed()||rwBusy||rwPending)return;rwBusy=true;try{const result=await rwRpc('read');if(force||Number(result.revision)!==rwLastApplied)rwApplyRemote(result,force);rwLastError='';rwStatus('🟢 Synchronisé · version '+rwRevision);}catch(e){rwLastError=e.message;rwStatus('🔴 Synchronisation impossible : '+e.message);}finally{rwBusy=false;}}
 async function rwPatch(type,payload={}){if(!rwAllowed())return;rwPending++;rwStatus('⏳ Enregistrement partagé…');try{const result=await rwRpc('patch',{type,...payload});rwRevision=Math.max(rwRevision,Number(result.revision||0));rwLastApplied=0;rwLastError='';rwStatus('🟢 Enregistré · version '+rwRevision);rwChannel?.send({type:'broadcast',event:'changed',payload:{revision:rwRevision}}).catch(()=>{});setTimeout(()=>rwFetch(),120);}catch(e){rwLastError=e.message;rwStatus('🔴 NON ENREGISTRÉ : '+e.message);alert('Modification non enregistrée dans Supabase : '+e.message);}finally{rwPending--;}}
 function rwSave(){if(!rwAllowed()||!rwData)return;const season=document.getElementById('rwSeason')?.value||'';rwData.season=season;rwPatch('season',{value:season});}
-function rwInit(){if(!rwAllowed())return;rwData=rwDefault();rwRevision=0;rwLastApplied=0;rwDrawEvents();rwRender();rwRenderInput();if(rwPollTimer)clearInterval(rwPollTimer);if(rwChannel){sb.removeChannel(rwChannel);rwChannel=null;}rwChannel=sb.channel('reward-live-refresh-v1').on('broadcast',{event:'changed'},()=>{if(isDashboardSectionActive('secRewards'))rwFetch();}).subscribe();rwPollTimer=setInterval(()=>{if(rwAllowed()&&isDashboardSectionActive('secRewards'))rwFetch();},3000);}
+function rwInit(){if(!rwAllowed())return;rwData=rwDefault();rwRevision=0;rwLastApplied=0;rwDrawEvents();rwRender();rwRenderInput();if(rwPollTimer)clearInterval(rwPollTimer);if(rwChannel){sb.removeChannel(rwChannel);rwChannel=null;}rwChannel=sb.channel('reward-live-refresh-v1').on('broadcast',{event:'changed'},()=>rwFetch()).subscribe();rwPollTimer=setInterval(()=>{if(rwAllowed())rwFetch();},3000);rwFetch(true);}
 function rwRefreshPlayerSelects(){}
 function rwDrawEvents(){if(!rwAllowed())return;const host=document.getElementById('rwEvents'),sel=document.getElementById('rwImportEvent');host.replaceChildren();sel.replaceChildren();rwData.events.forEach((ev,i)=>{const div=document.createElement('div');div.className='rw-panel';const name=document.createElement('input');name.value=ev.name;name.setAttribute('aria-label','Nom du classement');name.onchange=()=>{ev.name=name.value.trim()||`Classement ${i+1}`;rwPatch('event_name',{index:i,value:ev.name});rwDrawEvents();rwRender();rwRenderInput();};const lab=document.createElement('label');lab.textContent='Nom de l’événement';div.append(lab,name);const weight=document.createElement('input');weight.type='number';weight.min='0';weight.max='100';weight.value=ev.weight;weight.setAttribute('aria-label','Coefficient');weight.onchange=()=>{ev.weight=Math.max(0,Math.min(100,Number(weight.value)||0));rwPatch('weight',{index:i,value:ev.weight});rwRender();};const wl=document.createElement('label');wl.textContent='Coefficient';wl.style.marginTop='8px';div.append(wl,weight);const count=document.createElement('p');count.className='rw-note';count.textContent=Object.keys(ev.scores||{}).length+' scores importés';div.append(count);host.append(div);sel.add(new Option(ev.name,String(i)));});}
 function rwAddEvent(){if(!rwAllowed()||rwData.events.length>=4)return;rwData.events.push({name:'Nouveau classement',weight:25,scores:{}});rwPatch('add_event');rwDrawEvents();rwRender();rwRenderInput();}
@@ -5839,47 +5085,7 @@ function rwImport(){if(!rwAllowed())return;const i=Number(document.getElementByI
 function rwClearEvent(){if(!rwAllowed())return;const ev=rwData.events[Number(document.getElementById('rwImportEvent').value)];if(ev&&confirm(`Effacer les scores de ${ev.name} ?`)){ev.scores={};rwPatch('clear_event',{index:Number(document.getElementById('rwImportEvent').value)});rwDrawEvents();rwRender();rwRenderInput();}}
 function rwRoster(){const unique=new Map();(Array.isArray(participants)?participants:[]).forEach(p=>{const n=String(typeof p==='string'?p:(p.name||'')).trim();if(n)unique.set(n.toLocaleLowerCase(),n);});rwData.events.forEach(e=>Object.keys(e.scores||{}).forEach(n=>{const k=n.trim().toLocaleLowerCase();if(k&&!unique.has(k))unique.set(k,n.trim());}));[rwData.chief,...(rwData.tacticians||'').split(/\r?\n|;/)].forEach(n=>{const k=n.trim().toLocaleLowerCase();if(k&&!unique.has(k))unique.set(k,n.trim());});return [...unique.values()].sort((a,b)=>a.localeCompare(b,'fr',{sensitivity:'base'}));}
 function rwScore(ev,name){const key=name.trim().toLocaleLowerCase();const entry=Object.entries(ev.scores||{}).find(([n])=>n.trim().toLocaleLowerCase()===key);return entry?Number(entry[1]):null;}
-function rwResults(){
-  if(!rwData)return[];
-  const events=rwData.events;
-  const weights=events.map(event=>Math.max(0,Number(event.weight)||0));
-  const total=weights.reduce((a,b)=>a+b,0);
-  const roster=rwRoster();
-  const points=new Map(roster.map(name=>[
-    name.toLocaleLowerCase(),
-    {name,points:Array(events.length).fill(null)}
-  ]));
-
-  events.forEach((event,index)=>{
-    const scoresByName=new Map();
-    Object.entries(event.scores||{}).forEach(([name,score])=>{
-      const key=name.trim().toLocaleLowerCase();
-      if(!scoresByName.has(key))scoresByName.set(key,Number(score));
-    });
-    const entries=roster
-      .filter(name=>scoresByName.has(name.toLocaleLowerCase()))
-      .map(name=>({name,value:scoresByName.get(name.toLocaleLowerCase())}))
-      .filter(entry=>Number.isFinite(entry.value))
-      .sort((a,b)=>b.value-a.value);
-    const rankByValue=new Map();
-    entries.forEach((entry,rank)=>{
-      if(!rankByValue.has(entry.value))rankByValue.set(entry.value,rank+1);
-      const position=rankByValue.get(entry.value);
-      const percentile=entries.length<=1?100:100*(entries.length-position)/(entries.length-1);
-      points.get(entry.name.toLocaleLowerCase()).points[index]=percentile;
-    });
-  });
-
-  return [...points.values()]
-    .map(player=>{
-      const attended=player.points.filter(value=>value!==null).length;
-      const score=total
-        ?weights.reduce((sum,weight,index)=>sum+weight*(player.points[index]??0),0)/total
-        :0;
-      return {...player,attended,score};
-    })
-    .sort((a,b)=>b.score-a.score||a.name.localeCompare(b.name));
-}
+function rwResults(){if(!rwData)return[];const events=rwData.events,weights=events.map(e=>Math.max(0,Number(e.weight)||0)),total=weights.reduce((a,b)=>a+b,0),roster=rwRoster();const points=new Map(roster.map(n=>[n.toLocaleLowerCase(),{name:n,points:Array(events.length).fill(null)}]));events.forEach((ev,i)=>{const entries=roster.map(n=>({name:n,value:rwScore(ev,n)})).filter(x=>x.value!==null&&Number.isFinite(x.value)).sort((a,b)=>b.value-a.value);entries.forEach(({name,value})=>{const rank=entries.findIndex(x=>x.value===value)+1;const percentile=entries.length<=1?100:100*(entries.length-rank)/(entries.length-1);points.get(name.toLocaleLowerCase()).points[i]=percentile;});});return [...points.values()].map(p=>{const attended=p.points.filter(v=>v!==null).length;const perf=total?weights.reduce((sum,w,i)=>sum+w*(p.points[i]??0),0)/total:0;return {...p,attended,score:perf};}).sort((a,b)=>b.score-a.score||a.name.localeCompare(b.name));}
 function rwSetRole(name,role){if(!rwAllowed()||!rwData)return;const key=name.trim().toLocaleLowerCase();const chief=(rwData.chief||'').trim().toLocaleLowerCase(),tacts=(rwData.tacticians||'').split(/\r?\n|;/).map(x=>x.trim()).filter(Boolean);if(role==='chief'&&chief!==key&&rwData.chief){alert('Un chef est déjà désigné. Remettez son rôle sur Automatique avant de choisir un autre chef.');rwRenderInput();return;}if(role==='tactician'&&!tacts.some(n=>n.toLocaleLowerCase()===key)&&tacts.length>=4){alert('Les quatre postes de tacticien sont déjà occupés.');rwRenderInput();return;}if(chief===key)rwData.chief='';rwData.tacticians=tacts.filter(n=>n.toLocaleLowerCase()!==key).join('\n');if(role==='chief')rwData.chief=name;if(role==='tactician')rwData.tacticians=[...rwData.tacticians.split('\n').filter(Boolean),name].join('\n');rwRefreshPlayerSelects();rwPatch('role',{name,role});rwRenderInput();rwRender();}
 function rwSetScore(name,eventIndex,value){if(!rwAllowed()||!rwData)return;const ev=rwData.events[eventIndex];if(!ev)return;const key=Object.keys(ev.scores||{}).find(n=>n.trim().toLocaleLowerCase()===name.trim().toLocaleLowerCase())||name;if(value.trim()===''){delete ev.scores[key];}else{const score=Number(value.replace(',','.'));if(!Number.isFinite(score)||score<0){alert('Saisir un nombre positif ou laisser la case vide.');rwRenderInput();return;}ev.scores[key]=score;}rwPatch('score',{name,index:eventIndex,value:value.trim()===''?null:Number(value.replace(',','.'))});rwRender();}
 function rwRenderInput(){if(!rwAllowed()||!rwData)return;const head=document.getElementById('rwInputHead'),body=document.getElementById('rwInputRows');if(!head||!body)return;head.replaceChildren();body.replaceChildren();const h=document.createElement('tr');['Pseudo',...rwData.events.map(e=>e.name),'Catégorie / rôle'].forEach(t=>{const th=document.createElement('th');th.textContent=t;h.append(th);});head.append(h);const roster=rwRoster(),chief=(rwData.chief||'').trim().toLocaleLowerCase(),tacts=new Set((rwData.tacticians||'').split(/\r?\n|;/).map(x=>x.trim().toLocaleLowerCase()).filter(Boolean));roster.forEach(name=>{const tr=document.createElement('tr'),td=document.createElement('td');td.textContent=name;td.style.fontWeight='600';tr.append(td);rwData.events.forEach((ev,i)=>{const cell=document.createElement('td'),input=document.createElement('input');input.type='number';input.min='0';input.step='any';input.style.minWidth='92px';input.placeholder='—';const val=rwScore(ev,name);input.value=val===null?'':String(val);input.setAttribute('aria-label',ev.name+' — '+name);input.onchange=()=>rwSetScore(name,i,input.value);cell.append(input);tr.append(cell);});const cell=document.createElement('td'),select=document.createElement('select');select.style.minWidth='170px';[['auto','Automatique (classement)'],['chief','👑 Chef d’alliance'],['tactician','🧠 Membre tacticien']].forEach(([v,t])=>select.add(new Option(t,v)));select.value=name.toLocaleLowerCase()===chief?'chief':tacts.has(name.toLocaleLowerCase())?'tactician':'auto';select.onchange=()=>rwSetRole(name,select.value);cell.append(select);tr.append(cell);body.append(tr);});document.getElementById('rwInputStatus').textContent=roster.length+' joueurs affichés · données partagées avec le staff.';}
@@ -5891,7 +5097,7 @@ function rwExport(){if(!rwAllowed()||!rwData)return;const all=rwResults(),chief=
 function rwExportBackup(){if(!rwAllowed()||!rwData)return;rwDownload('recompenses_saison_sauvegarde.json',JSON.stringify(rwData,null,2),'application/json');}
 function rwRestoreBackup(input){if(!rwAllowed())return;const file=input.files?.[0];if(!file||file.size>2e6)return;const reader=new FileReader();reader.onload=()=>{try{const data=JSON.parse(reader.result);if(!Array.isArray(data.events)||data.events.length<1||data.events.length>4||data.events.some(e=>typeof e.name!=='string'||!e.scores||typeof e.scores!=='object'))throw Error('Format invalide');if(!confirm('Remplacer le brouillon local par cette sauvegarde ?'))return;rwData={...rwDefault(),...data,overrides:data.overrides||{}};rwPatch('restore',{data:rwData});rwDrawEvents();rwRender();rwRenderInput();}catch(e){alert('Sauvegarde JSON invalide.');}};reader.readAsText(file);input.value='';}
 // V17.6 — mouvements inter-saisons (RPC staff)
-let mvSeason='',mvRows=[],mvNotes=[],mvNotesByMovement=new Map(),mvSelectedId=null,mvCurrentFilter='all',mvStatusFilter='all',mvAllianceFilter='all',mvServerFilter='all',mvTimer=null,mvBusy=false;
+let mvSeason='',mvRows=[],mvNotes=[],mvSelectedId=null,mvCurrentFilter='all',mvStatusFilter='all',mvAllianceFilter='all',mvServerFilter='all',mvTimer=null,mvBusy=false;
 function mvAllowed(){return typeof isAdminOrStaff==='function'&&isAdminOrStaff();}
 function mvSetStatus(t){const el=document.getElementById('mvSync');if(el)el.textContent=t;}
 async function mvRpc(action,payload={}){if(!mvAllowed()||!sb||!currentUser)throw Error('Compte staff requis');const hash=await getStaffActionHash();if(!hash)throw Error('Reconnecte-toi avec ton compte staff');const {data,error}=await sb.rpc('interseason_staff_v1',{p_username:currentUser.username,p_account_hash:hash,p_action:action,p_payload:payload});if(error)throw error;return data;}
@@ -5921,19 +5127,12 @@ function mvSyncDeparturePower(){
  if(Number.isFinite(power)&&power>0){input.value=(power/1e6).toLocaleString('fr-FR',{maximumFractionDigits:4})+' M';input.readOnly=true;input.dataset.autoDeparture='1';hint.textContent='✓ Puissance T1 récupérée depuis la fiche du joueur sur le site.';}
  else{if(input.dataset.autoDeparture==='1')input.value='';input.readOnly=false;delete input.dataset.autoDeparture;hint.textContent='Aucune puissance T1 renseignée pour ce joueur : saisie manuelle possible.';}
 }
-function mvInit(){if(!mvAllowed())return;mvSeason='Registre commun';document.getElementById('mvSeason').value=mvSeason;mvTypeChange();if(mvTimer)clearInterval(mvTimer);mvTimer=setInterval(()=>{if(mvAllowed()&&isDashboardSectionActive('secMovements'))mvRefresh(true);},4000);}
+function mvInit(){if(!mvAllowed())return;mvSeason='Registre commun';document.getElementById('mvSeason').value=mvSeason;mvTypeChange();if(mvTimer)clearInterval(mvTimer);mvTimer=setInterval(()=>{if(mvAllowed()&&document.visibilityState==='visible')mvRefresh(true);},4000);mvRefresh();}
 // Synchronisation au retour sur l'onglet et après reconnexion.
-document.addEventListener('visibilitychange',()=>{if(mvAllowed()&&mvSeason&&isDashboardSectionActive('secMovements'))mvRefresh(true);});
-window.addEventListener('online',()=>{if(mvAllowed()&&mvSeason&&isDashboardSectionActive('secMovements'))mvRefresh(true);});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&mvAllowed()&&mvSeason)mvRefresh(true);});
+window.addEventListener('online',()=>{if(mvAllowed()&&mvSeason)mvRefresh(true);});
+function mvSelectSeason(){mvRefresh();} // Registre unique partagé : aucun filtre local par saison
 let mvRefreshPending=false;
-function indexMvNotes(notes){
- const index=new Map();
- notes.forEach(note=>{
-  if(!index.has(note.movement_id))index.set(note.movement_id,[]);
-  index.get(note.movement_id).push(note);
- });
- return index;
-}
 async function mvRefresh(silent=false){
  if(!mvAllowed())return;
  if(mvBusy){mvRefreshPending=true;return;}
@@ -5944,7 +5143,6 @@ async function mvRefresh(silent=false){
   if(requestedSeason!==mvSeason){mvRefreshPending=true;return;}
   mvRows=Array.isArray(r?.movements)?r.movements:[];
   mvNotes=Array.isArray(r?.notes)?r.notes:[];
-  mvNotesByMovement=indexMvNotes(mvNotes);
   mvRender();
   if(!document.getElementById('mvNoteModal').hidden)mvRenderNoteModal();
   mvSetStatus('🟢 Synchronisé · '+mvRows.length+' fiche(s) · registre commun');
@@ -6004,11 +5202,11 @@ function mvRender(){const host=document.getElementById('mvRows');if(!host)return
   mvRenderDeferred=true;
   return;
  }
- mvRenderDeferred=false;document.querySelectorAll('body > .mv-note-tooltip').forEach(el=>el.remove());host.replaceChildren();mvUpdateLocationFilters();const included=mvRows.filter(r=>r.status==='confirmed'||r.status==='finalized'||r.status==='completed');const incoming=included.filter(r=>r.kind==='recruit').length,outgoing=included.filter(r=>r.kind==='departure').length;document.getElementById('mvIn').textContent=incoming;document.getElementById('mvOut').textContent=outgoing;document.getElementById('mvBalance').textContent=(incoming-outgoing>0?'+':'')+(incoming-outgoing);const withT1=included.map(r=>({...r,t1:mvParseT1(r.power)})).filter(r=>r.t1!==null);const t1In=withT1.filter(r=>r.kind==='recruit'),t1Out=withT1.filter(r=>r.kind==='departure');const sumT1=rows=>rows.reduce((sum,r)=>sum+r.t1,0);const inPower=sumT1(t1In),outPower=sumT1(t1Out),difference=inPower-outPower;document.getElementById('mvT1In').textContent=mvFormatT1(inPower);document.getElementById('mvT1Out').textContent=mvFormatT1(outPower);const diffEl=document.getElementById('mvT1Diff');diffEl.textContent=(difference>0?'+':'')+mvFormatT1(difference);diffEl.style.color=difference>0?'#22c55e':difference<0?'#ef4444':'';document.getElementById('mvT1Coverage').textContent='Bilan des recrutements et départs confirmés ou finalisés (anciens dossiers « terminés » inclus) : '+t1In.length+'/'+incoming+' arrivées et '+t1Out.length+'/'+outgoing+' départs avec puissance T1 renseignée. Les valeurs manquantes ne sont pas comptées.';mvRows.filter(r=>(mvCurrentFilter==='all'||r.kind===mvCurrentFilter)&&(mvStatusFilter==='all'||(mvStatusFilter==='finalized'?(r.status==='finalized'||r.status==='completed'):r.status===mvStatusFilter))&&(mvAllianceFilter==='all'||String(r.alliance??'').trim()===mvAllianceFilter)&&(mvServerFilter==='all'||String(r.server??'').trim()===mvServerFilter)).forEach(r=>{const tr=document.createElement('tr');const name=mvCell(tr,r.player_name);name.style.fontWeight='600';const meta=document.createElement('div');meta.className='mv-note';meta.textContent=[r.power&&'T1 : '+r.power,r.server&&'Serveur '+r.server,r.alliance].filter(Boolean).join(' · ');name.append(meta);mvCell(tr,r.player_power==null?'—':Number(r.player_power).toLocaleString('fr-FR',{maximumFractionDigits:3})+' M');mvCell(tr,r.kills==null?'—':Number(r.kills).toLocaleString('fr-FR'));mvCell(tr,r.kind==='recruit'?'🟢 Arrivée':'🔴 Départ');const status=mvCell(tr,'');const sel=document.createElement('select');Object.entries(mvStatuses).forEach(([k,v])=>sel.add(new Option(v,k)));sel.value=r.status;sel.onchange=async()=>{const old=r.status;r.status=sel.value;if(!await mvChange('update',{id:r.id,status:sel.value}))sel.value=old;};status.append(sel);const seat=mvCell(tr,'');const sc=document.createElement('select');mvColors.forEach(([k,v])=>sc.add(new Option(v,k)));sc.value=r.seat_color||'';sc.title='Couleur du siège';sc.setAttribute('aria-label','Couleur du siège de '+r.player_name);sc.style.width='58px';sc.style.minWidth='58px';sc.onchange=()=>mvChange('update',{id:r.id,seat_color:sc.value});seat.append(sc);const note=mvCell(tr,'');const btn=document.createElement('button');btn.className='btn';const playerNotes=mvNotesByMovement.get(r.id)||[];btn.textContent='📝';btn.title='Voir les notes ('+playerNotes.length+')';btn.setAttribute('aria-label','Notes de '+r.player_name+' ('+playerNotes.length+')');btn.onclick=()=>mvOpenNoteModal(r.id);if(playerNotes.length){const wrap=document.createElement('span');wrap.className='mv-note-tooltip-wrap';btn.classList.add('mv-notes-present');btn.setAttribute('aria-label',playerNotes.length+' annotation(s) pour '+r.player_name+'. Cliquer pour ouvrir la fiche.');const bubble=document.createElement('div');bubble.className='mv-note-tooltip';bubble.hidden=true;bubble.setAttribute('role','tooltip');const heading=document.createElement('strong');heading.className='mv-note-tooltip-heading';heading.textContent='📝 '+playerNotes.length+' annotation(s) — '+r.player_name;bubble.append(heading);playerNotes.forEach(n=>{const item=document.createElement('span');item.className='mv-note-tooltip-item';const author=document.createElement('strong');author.textContent=(n.author||'Staff')+' · '+(n.created_at?new Date(n.created_at).toLocaleDateString('fr-FR'):'');const body=document.createElement('span');body.textContent=n.body||'';item.append(author,body);bubble.append(item);});wrap.append(btn);note.append(wrap);document.body.append(bubble);
+ mvRenderDeferred=false;document.querySelectorAll('body > .mv-note-tooltip').forEach(el=>el.remove());host.replaceChildren();mvUpdateLocationFilters();const included=mvRows.filter(r=>r.status==='confirmed'||r.status==='finalized'||r.status==='completed');const incoming=included.filter(r=>r.kind==='recruit').length,outgoing=included.filter(r=>r.kind==='departure').length;document.getElementById('mvIn').textContent=incoming;document.getElementById('mvOut').textContent=outgoing;document.getElementById('mvBalance').textContent=(incoming-outgoing>0?'+':'')+(incoming-outgoing);const withT1=included.map(r=>({...r,t1:mvParseT1(r.power)})).filter(r=>r.t1!==null);const t1In=withT1.filter(r=>r.kind==='recruit'),t1Out=withT1.filter(r=>r.kind==='departure');const sumT1=rows=>rows.reduce((sum,r)=>sum+r.t1,0);const inPower=sumT1(t1In),outPower=sumT1(t1Out),difference=inPower-outPower;document.getElementById('mvT1In').textContent=mvFormatT1(inPower);document.getElementById('mvT1Out').textContent=mvFormatT1(outPower);const diffEl=document.getElementById('mvT1Diff');diffEl.textContent=(difference>0?'+':'')+mvFormatT1(difference);diffEl.style.color=difference>0?'#22c55e':difference<0?'#ef4444':'';document.getElementById('mvT1Coverage').textContent='Bilan des recrutements et départs confirmés ou finalisés (anciens dossiers « terminés » inclus) : '+t1In.length+'/'+incoming+' arrivées et '+t1Out.length+'/'+outgoing+' départs avec puissance T1 renseignée. Les valeurs manquantes ne sont pas comptées.';mvRows.filter(r=>(mvCurrentFilter==='all'||r.kind===mvCurrentFilter)&&(mvStatusFilter==='all'||(mvStatusFilter==='finalized'?(r.status==='finalized'||r.status==='completed'):r.status===mvStatusFilter))&&(mvAllianceFilter==='all'||String(r.alliance??'').trim()===mvAllianceFilter)&&(mvServerFilter==='all'||String(r.server??'').trim()===mvServerFilter)).forEach(r=>{const tr=document.createElement('tr');const name=mvCell(tr,r.player_name);name.style.fontWeight='600';const meta=document.createElement('div');meta.className='mv-note';meta.textContent=[r.power&&'T1 : '+r.power,r.server&&'Serveur '+r.server,r.alliance].filter(Boolean).join(' · ');name.append(meta);mvCell(tr,r.player_power==null?'—':Number(r.player_power).toLocaleString('fr-FR',{maximumFractionDigits:3})+' M');mvCell(tr,r.kills==null?'—':Number(r.kills).toLocaleString('fr-FR'));mvCell(tr,r.kind==='recruit'?'🟢 Arrivée':'🔴 Départ');const status=mvCell(tr,'');const sel=document.createElement('select');Object.entries(mvStatuses).forEach(([k,v])=>sel.add(new Option(v,k)));sel.value=r.status;sel.onchange=async()=>{const old=r.status;r.status=sel.value;if(!await mvChange('update',{id:r.id,status:sel.value}))sel.value=old;};status.append(sel);const seat=mvCell(tr,'');const sc=document.createElement('select');mvColors.forEach(([k,v])=>sc.add(new Option(v,k)));sc.value=r.seat_color||'';sc.title='Couleur du siège';sc.setAttribute('aria-label','Couleur du siège de '+r.player_name);sc.style.width='58px';sc.style.minWidth='58px';sc.onchange=()=>mvChange('update',{id:r.id,seat_color:sc.value});seat.append(sc);const note=mvCell(tr,'');const btn=document.createElement('button');btn.className='btn';const playerNotes=mvNotes.filter(n=>n.movement_id===r.id);btn.textContent='📝';btn.title='Voir les notes ('+playerNotes.length+')';btn.setAttribute('aria-label','Notes de '+r.player_name+' ('+playerNotes.length+')');btn.onclick=()=>mvOpenNoteModal(r.id);if(playerNotes.length){const wrap=document.createElement('span');wrap.className='mv-note-tooltip-wrap';btn.classList.add('mv-notes-present');btn.setAttribute('aria-label',playerNotes.length+' annotation(s) pour '+r.player_name+'. Cliquer pour ouvrir la fiche.');const bubble=document.createElement('div');bubble.className='mv-note-tooltip';bubble.hidden=true;bubble.setAttribute('role','tooltip');const heading=document.createElement('strong');heading.className='mv-note-tooltip-heading';heading.textContent='📝 '+playerNotes.length+' annotation(s) — '+r.player_name;bubble.append(heading);playerNotes.forEach(n=>{const item=document.createElement('span');item.className='mv-note-tooltip-item';const author=document.createElement('strong');author.textContent=(n.author||'Staff')+' · '+(n.created_at?new Date(n.created_at).toLocaleDateString('fr-FR'):'');const body=document.createElement('span');body.textContent=n.body||'';item.append(author,body);bubble.append(item);});wrap.append(btn);note.append(wrap);document.body.append(bubble);
 const positionBubble=()=>{const rect=btn.getBoundingClientRect();const w=Math.min(440,window.innerWidth-24);const x=Math.max(12,Math.min(rect.left,window.innerWidth-w-12));bubble.style.left=x+'px';bubble.style.top='12px';bubble.hidden=false;const h=bubble.getBoundingClientRect().height;const above=rect.top-h-10;const below=rect.bottom+10;bubble.style.top=(above>=12?above:below+h<=window.innerHeight-12?below:Math.max(12,Math.min(window.innerHeight-h-12,rect.top-h/2)))+'px';};
 const hideBubble=()=>{bubble.hidden=true;};btn.addEventListener('mouseenter',positionBubble);btn.addEventListener('mouseleave',hideBubble);btn.addEventListener('focus',positionBubble);btn.addEventListener('blur',hideBubble);btn.addEventListener('click',hideBubble);}else{note.append(btn);}const act=mvCell(tr,'');const actionGroup=document.createElement('div');actionGroup.className='mv-row-actions';const edit=document.createElement('button');edit.className='btn';edit.textContent='✏️';edit.title='Modifier la fiche';edit.setAttribute('aria-label','Modifier '+r.player_name);edit.onclick=()=>mvEdit(r.id);actionGroup.append(edit);const del=document.createElement('button');del.className='btn mv-delete-icon';del.textContent='❌';del.title='Supprimer le mouvement';del.setAttribute('aria-label','Supprimer le mouvement de '+r.player_name);del.onclick=()=>{if(confirm('Supprimer ce mouvement et toutes ses annotations ?'))mvChange('delete',{id:r.id});};actionGroup.append(del);act.append(actionGroup);host.append(tr);});}
 
 function mvOpenNoteModal(id){mvSelectedId=id;mvRenderNoteModal();const modal=document.getElementById('mvNoteModal');modal.hidden=false;document.getElementById('mvNoteModalInput').focus();}
 function mvCloseNoteModal(){document.getElementById('mvNoteModal').hidden=true;document.getElementById('mvNoteModalInput').value='';}
-function mvRenderNoteModal(){const r=mvRows.find(x=>x.id===mvSelectedId),list=document.getElementById('mvNoteModalList');list.replaceChildren();document.getElementById('mvNoteModalTitle').textContent='📝 Notes — '+(r?.player_name||'Joueur');if(!r)return;const notes=mvNotesByMovement.get(r.id)||[];if(!notes.length){const p=document.createElement('p');p.textContent='Aucune annotation pour le moment.';list.append(p);}notes.forEach(n=>{const item=document.createElement('div');item.className='mv-note-modal-item';const meta=document.createElement('small');meta.textContent=(n.author||'Staff')+' · '+(n.created_at?new Date(n.created_at).toLocaleString('fr-FR'):'');const body=document.createElement('div');body.textContent=n.body||'';item.append(meta,body);if(n.author===currentUser?.username||isAdmin()){const edit=document.createElement('button');edit.className='btn';edit.textContent='✏️ Modifier';edit.onclick=async()=>{const next=prompt('Modifier cette annotation :',n.body);if(next!==null&&next.trim())await mvChange('edit_note',{id:n.id,body:next.trim()});};const del=document.createElement('button');del.className='btn';del.textContent='Supprimer';del.onclick=async()=>{if(confirm('Supprimer cette annotation ?'))await mvChange('delete_note',{id:n.id});};item.append(edit,del);}list.append(item);});}
+function mvRenderNoteModal(){const r=mvRows.find(x=>x.id===mvSelectedId),list=document.getElementById('mvNoteModalList');list.replaceChildren();document.getElementById('mvNoteModalTitle').textContent='📝 Notes — '+(r?.player_name||'Joueur');if(!r)return;const notes=mvNotes.filter(n=>n.movement_id===r.id);if(!notes.length){const p=document.createElement('p');p.textContent='Aucune annotation pour le moment.';list.append(p);}notes.forEach(n=>{const item=document.createElement('div');item.className='mv-note-modal-item';const meta=document.createElement('small');meta.textContent=(n.author||'Staff')+' · '+(n.created_at?new Date(n.created_at).toLocaleString('fr-FR'):'');const body=document.createElement('div');body.textContent=n.body||'';item.append(meta,body);if(n.author===currentUser?.username||isAdmin()){const edit=document.createElement('button');edit.className='btn';edit.textContent='✏️ Modifier';edit.onclick=async()=>{const next=prompt('Modifier cette annotation :',n.body);if(next!==null&&next.trim())await mvChange('edit_note',{id:n.id,body:next.trim()});};const del=document.createElement('button');del.className='btn';del.textContent='Supprimer';del.onclick=async()=>{if(confirm('Supprimer cette annotation ?'))await mvChange('delete_note',{id:n.id});};item.append(edit,del);}list.append(item);});}
 async function mvSubmitModalNote(){if(!mvSelectedId)return;const el=document.getElementById('mvNoteModalInput'),body=el.value.trim();if(!body)return alert('Écrire une annotation');if(await mvChange('add_note',{movement_id:mvSelectedId,body})){el.value='';mvRenderNoteModal();}}
